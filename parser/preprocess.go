@@ -69,10 +69,34 @@ func (p *Preprocessor) splitWithoutFiltering(line string) []string {
 
 // filterCommonVariables replaces common variables with wildcards according to configuration.
 func (p *Preprocessor) filterCommonVariables(word string) string {
+	// First check against configured patterns
 	for _, regex := range p.commonVariables {
 		if regex.MatchString(word) {
 			return "<*>"
 		}
 	}
+
+	// Check if word is numeric-heavy (30% or more digits)
+	if isNumericVariable(word) {
+		return "<*>"
+	}
+
 	return word
+}
+
+// isNumericVariable checks if a token contains 30% or more digits, making it likely a variable
+func isNumericVariable(word string) bool {
+	if len(word) == 0 {
+		return false
+	}
+
+	digitCount := 0
+	for _, ch := range word {
+		if ch >= '0' && ch <= '9' {
+			digitCount++
+		}
+	}
+
+	// If 30% or more of the characters are digits, consider it a variable
+	return float64(digitCount)/float64(len(word)) >= 0.3
 }

@@ -106,12 +106,17 @@ func (p *BrainParser) buildCompleteTemplate(baseTemplate, pathTemplate map[int]s
 		}
 	}
 
-	// Assemble final template
+	// Assemble final template with enhanced post-processing
 	result := make([]string, maxPos+1)
 	for i := 0; i <= maxPos; i++ {
 		word, ok := completeTemplate[i]
 		if ok {
-			result[i] = word
+			// Apply enhanced post-processing to catch missed variables
+			if word != "<*>" && shouldBeVariable(word) {
+				result[i] = "<*>"
+			} else {
+				result[i] = word
+			}
 		} else {
 			// If position is not filled, it's a variable
 			result[i] = "<*>"
@@ -119,4 +124,76 @@ func (p *BrainParser) buildCompleteTemplate(baseTemplate, pathTemplate map[int]s
 	}
 
 	return strings.Join(result, " ")
+}
+
+// shouldBeVariable checks if a token should be considered a variable during post-processing
+// This catches variables that might have been missed during preprocessing
+func shouldBeVariable(word string) bool {
+	// Check if word contains significant numeric content
+	if isNumericVariable(word) {
+		return true
+	}
+
+	// Check for other variable patterns that might have been missed
+	// Mixed alphanumeric with special characters often indicates variables
+	if containsMixedPatterns(word) {
+		return true
+	}
+
+	return false
+}
+
+// containsMixedPatterns checks for patterns that typically indicate variables
+func containsMixedPatterns(word string) bool {
+	if len(word) < 3 { // Too short to analyze patterns
+		return false
+	}
+
+	// Skip common protocol/format names
+	upperWord := strings.ToUpper(word)
+	if upperWord == "HTTP" || upperWord == "HTTPS" || upperWord == "SOCKS5" ||
+		upperWord == "FTP" || upperWord == "SSH" || upperWord == "TCP" ||
+		upperWord == "UDP" || upperWord == "IPV4" || upperWord == "IPV6" {
+		return false
+	}
+
+	hasLetters := false
+	hasDigits := false
+	hasSpecial := false
+	digitCount := 0
+	letterCount := 0
+
+	for _, ch := range word {
+		switch {
+		case (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z'):
+			hasLetters = true
+			letterCount++
+		case ch >= '0' && ch <= '9':
+			hasDigits = true
+			digitCount++
+		case ch == '_' || ch == '-' || ch == '.' || ch == ':' || ch == '/':
+			hasSpecial = true
+		}
+	}
+
+	// If it's mostly letters with just one digit at the end (like SOCKS5), it's likely a constant
+	if letterCount > digitCount*2 && digitCount <= 1 {
+		return false
+	}
+
+	// Mixed patterns often indicate variables
+	// Examples: user_123, id-456, v2.3.4, path/to/file123
+	mixedCount := 0
+	if hasLetters {
+		mixedCount++
+	}
+	if hasDigits {
+		mixedCount++
+	}
+	if hasSpecial {
+		mixedCount++
+	}
+
+	// If we have at least 2 different types of characters AND meaningful digits, it's likely a variable
+	return mixedCount >= 2 && hasDigits && digitCount > 1
 }

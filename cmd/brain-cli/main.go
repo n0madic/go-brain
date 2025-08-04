@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/n0madic/go-brain/parser"
@@ -31,6 +32,7 @@ func main() {
 		verbose       = flag.Bool("verbose", false, "Verbose output with log IDs")
 		outputFormat  = flag.String("format", "table", "Output format: table, json, csv")
 		minCount      = flag.Int("min-count", 1, "Minimum template count to display")
+		logRegex      = flag.String("log-regex", "", "Regex to extract message from structured logs (must have 'message' capture group)")
 	)
 	flag.Parse()
 
@@ -41,7 +43,7 @@ func main() {
 	}
 
 	// Read input file
-	logLines, err := readInputFile(*inputFile, *fileType, *csvColumn)
+	logLines, err := readInputFile(*inputFile, *fileType, *csvColumn, *logRegex)
 	if err != nil {
 		log.Fatalf("Error reading input file: %v", err)
 	}
@@ -89,7 +91,7 @@ func main() {
 }
 
 // readInputFile reads log lines from various file formats
-func readInputFile(filename, fileType, csvColumn string) ([]string, error) {
+func readInputFile(filename, fileType, csvColumn, logRegex string) ([]string, error) {
 	file, err := os.Open(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
@@ -109,22 +111,52 @@ func readInputFile(filename, fileType, csvColumn string) ([]string, error) {
 	case "csv":
 		return readCSVFile(file, csvColumn)
 	case "text":
-		return readTextFile(file)
+		return readTextFile(file, logRegex)
 	default:
 		return nil, fmt.Errorf("unsupported file type: %s", fileType)
 	}
 }
 
 // readTextFile reads plain text log files (one log per line)
-func readTextFile(reader io.Reader) ([]string, error) {
+func readTextFile(reader io.Reader, logRegex string) ([]string, error) {
 	var lines []string
 	scanner := bufio.NewScanner(reader)
 
+	// Compile regex if provided
+	var regex *regexp.Regexp
+	var err error
+	if logRegex != "" {
+		regex, err = regexp.Compile(logRegex)
+		if err != nil {
+			return nil, fmt.Errorf("invalid log regex: %w", err)
+		}
+	}
+
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if line != "" { // Skip empty lines
-			lines = append(lines, line)
+		if line == "" { // Skip empty lines
+			continue
 		}
+
+		// Extract message using regex if provided
+		if regex != nil {
+			matches := regex.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				// Look for named capture group "message"
+				names := regex.SubexpNames()
+				for i, name := range names {
+					if name == "message" && i < len(matches) {
+						line = matches[i]
+						break
+					}
+				}
+			} else {
+				// If regex doesn't match, skip the line
+				continue
+			}
+		}
+
+		lines = append(lines, line)
 	}
 
 	if err := scanner.Err(); err != nil {

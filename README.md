@@ -94,6 +94,9 @@ go build -o brain-cli ./cmd/brain-cli
 
 # Use custom delimiters
 ./brain-cli -input logs/app.log -delimiters '[\s,;:|]+'
+
+# Extract messages from structured logs using regex
+./brain-cli -input logs/structured.log -log-regex '^(?P<timestamp>[^\s]+)\s+\[(?P<level>[^\]]+)\]\s+(?P<service>[^:]+):\s*(?P<message>.+)$'
 ```
 
 #### CLI Options
@@ -101,6 +104,7 @@ go build -o brain-cli ./cmd/brain-cli
 - `-input`: Input file path (required)
 - `-type`: File type: `auto`, `text`, `csv` (default: auto-detect)
 - `-csv-column`: CSV column name containing log messages (default: "message")
+- `-log-regex`: Regex to extract message from structured logs (must have 'message' capture group)
 - `-delimiters`: Regex pattern for token delimiters (default: `[\s,:=]+`)
 - `-threshold`: Child branch threshold (default: 3)
 - `-dynamic`: Use dynamic threshold calculation (default: true)
