@@ -1,0 +1,20 @@
+2024-01-15 10:30:22 INFO User login successful: user123
+2024-01-15 10:30:25 INFO User login successful: user456
+2024-01-15 10:30:28 INFO User login successful: user789
+2024-01-15 10:31:15 ERROR Database connection failed: timeout after 30s
+2024-01-15 10:31:18 ERROR Database connection failed: timeout after 45s
+2024-01-15 10:31:22 WARN Cache miss for key: product_123
+2024-01-15 10:31:25 WARN Cache miss for key: product_456
+2024-01-15 10:31:28 WARN Cache miss for key: product_789
+2024-01-15 10:32:10 INFO HTTP request processed: GET /api/users/123 200 OK
+2024-01-15 10:32:12 INFO HTTP request processed: GET /api/users/456 200 OK
+2024-01-15 10:32:15 INFO HTTP request processed: POST /api/orders/789 201 Created
+2024-01-15 10:32:18 ERROR Authentication failed for IP: 192.168.1.100
+2024-01-15 10:32:20 ERROR Authentication failed for IP: 10.0.0.50
+2024-01-15 10:33:05 INFO File uploaded successfully: document_abc123.pdf size 2.5MB
+2024-01-15 10:33:08 INFO File uploaded successfully: image_xyz789.jpg size 1.2MB
+2024-01-15 10:33:45 DEBUG Query executed in 150ms: SELECT * FROM users WHERE id = 123
+2024-01-15 10:33:48 DEBUG Query executed in 200ms: SELECT * FROM orders WHERE user_id = 456
+2024-01-15 10:34:12 WARN Rate limit exceeded for user: user123 (100 requests/hour)
+2024-01-15 10:34:15 WARN Rate limit exceeded for user: user456 (100 requests/hour)
+2024-01-15 10:35:00 INFO Session expired for user: user789 after 3600 seconds
