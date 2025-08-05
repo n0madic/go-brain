@@ -34,6 +34,12 @@ func main() {
 		outputFormat  = flag.String("format", "table", "Output format: table, json, csv")
 		minCount      = flag.Int("min-count", 1, "Minimum template count to display")
 		logRegex      = flag.String("log-regex", "", "Regex to extract message from structured logs (must have 'message' capture group)")
+
+		// Enhanced Features (Drain+ Improvements)
+		enhancedPost         = flag.Bool("enhanced-post", false, "Enable enhanced post-processing for advanced variable detection")
+		statisticalThreshold = flag.Bool("statistical-threshold", false, "Use statistical analysis for adaptive threshold calculation")
+		parallelThreshold    = flag.Int("parallel-threshold", 1000, "Minimum log count in group to enable parallel processing")
+		enableAllEnhanced    = flag.Bool("enhanced", false, "Enable all enhanced features (equivalent to --enhanced-post --statistical-threshold)")
 	)
 	flag.Parse()
 
@@ -56,13 +62,40 @@ func main() {
 
 	fmt.Printf("Processing %d log lines...\n", len(logLines))
 
+	// Handle enhanced features flag
+	if *enableAllEnhanced {
+		*enhancedPost = true
+		*statisticalThreshold = true
+	}
+
+	// Show enabled enhanced features
+	var enabledFeatures []string
+	if *enhancedPost {
+		enabledFeatures = append(enabledFeatures, "enhanced-post-processing")
+	}
+	if *statisticalThreshold {
+		enabledFeatures = append(enabledFeatures, "statistical-threshold")
+	}
+	if *parallelThreshold < 1000 {
+		enabledFeatures = append(enabledFeatures, fmt.Sprintf("parallel-processing(threshold=%d)", *parallelThreshold))
+	} else if len(logLines) >= *parallelThreshold {
+		enabledFeatures = append(enabledFeatures, "parallel-processing")
+	}
+
+	if len(enabledFeatures) > 0 {
+		fmt.Printf("Enhanced features enabled: %s\n", strings.Join(enabledFeatures, ", "))
+	}
+
 	// Configure Brain parser
 	config := parser.Config{
-		Delimiters:             *delimiters,
-		ChildBranchThreshold:   *threshold,
-		UseDynamicThreshold:    *useDynamic,
-		DynamicThresholdFactor: *dynamicFactor,
-		Weight:                 0.0, // Offline mode
+		Delimiters:                  *delimiters,
+		ChildBranchThreshold:        *threshold,
+		UseDynamicThreshold:         *useDynamic,
+		DynamicThresholdFactor:      *dynamicFactor,
+		Weight:                      0.0, // Offline mode
+		UseEnhancedPostProcessing:   *enhancedPost,
+		UseStatisticalThreshold:     *statisticalThreshold,
+		ParallelProcessingThreshold: *parallelThreshold,
 	}
 
 	// Create parser and process logs

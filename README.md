@@ -105,6 +105,9 @@ go build -o brain-cli ./cmd/brain-cli
 
 # Extract messages from structured logs using regex
 ./brain-cli -input logs/structured.log -log-regex '^(?P<timestamp>[^\s]+)\s+\[(?P<level>[^\]]+)\]\s+(?P<service>[^:]+):\s*(?P<message>.+)$'
+
+# Enable enhanced features for better variable detection
+./brain-cli -input logs/app.log -enhanced
 ```
 
 #### CLI Options
@@ -264,12 +267,12 @@ Based on comprehensive benchmarks with 1,000-10,000 log samples:
 
 ### Benchmark Results
 ```
-Configuration                Dataset               Time (ms)    Templates    Throughput (logs/sec)
-========================================================================================
-Original Brain              1,000 logs            7.3          25           137,455
-All Enhancements           1,000 logs            14.3         11           70,089
-Original Brain              10,000 logs           69.5         14           143,887
-All Enhancements           10,000 logs           140.1        11           71,398
+Configuration                Dataset          Time (ms)    Templates    Throughput (logs/sec)
+=============================================================================================
+Original Brain               1,000 logs         7.3          25           137,455
+All Enhancements             1,000 logs        14.3          11            70,089
+Original Brain              10,000 logs        69.5          14           143,887
+All Enhancements            10,000 logs       140.1          11            71,398
 ```
 
 ### Usage Recommendations
