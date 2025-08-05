@@ -40,6 +40,14 @@ func main() {
 		statisticalThreshold = flag.Bool("statistical-threshold", false, "Use statistical analysis for adaptive threshold calculation")
 		parallelThreshold    = flag.Int("parallel-threshold", 1000, "Minimum log count in group to enable parallel processing")
 		enableAllEnhanced    = flag.Bool("enhanced", false, "Enable all enhanced features (equivalent to --enhanced-post --statistical-threshold)")
+
+		// Enhanced Features Tuning Parameters
+		entropyThreshold        = flag.Float64("entropy-threshold", 0.85, "Threshold for entropy-based variable detection (lower = more aggressive)")
+		minEntropyLength        = flag.Int("min-entropy-length", 10, "Minimum word length for entropy analysis")
+		maxConsecutiveWildcards = flag.Int("max-consecutive-wildcards", 5, "Maximum consecutive <*> tokens in template (0 = no limit)")
+		minContentWordsRatio    = flag.Float64("min-content-ratio", 0.25, "Minimum ratio of non-<*> words in template")
+		timestampMinDigits      = flag.Int("timestamp-min-digits", 8, "Minimum digits for timestamp detection")
+		timestampMinSeparators  = flag.Int("timestamp-min-separators", 2, "Minimum separators for timestamp detection")
 	)
 	flag.Parse()
 
@@ -96,6 +104,14 @@ func main() {
 		UseEnhancedPostProcessing:   *enhancedPost,
 		UseStatisticalThreshold:     *statisticalThreshold,
 		ParallelProcessingThreshold: *parallelThreshold,
+
+		// Enhanced Features Tuning Parameters
+		EntropyThreshold:        *entropyThreshold,
+		MinEntropyLength:        *minEntropyLength,
+		MaxConsecutiveWildcards: *maxConsecutiveWildcards,
+		MinContentWordsRatio:    *minContentWordsRatio,
+		TimestampMinDigits:      *timestampMinDigits,
+		TimestampMinSeparators:  *timestampMinSeparators,
 	}
 
 	// Create parser and process logs
