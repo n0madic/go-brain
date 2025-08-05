@@ -106,12 +106,31 @@ go build -o brain-cli ./cmd/brain-cli
 # Extract messages from structured logs using regex
 ./brain-cli -input logs/structured.log -log-regex '^(?P<timestamp>[^\s]+)\s+\[(?P<level>[^\]]+)\]\s+(?P<service>[^:]+):\s*(?P<message>.+)$'
 
-# Enable enhanced features for better variable detection
+# Enable all enhanced features for better variable detection
 ./brain-cli -input logs/app.log -enhanced
+
+# Enable specific enhanced features
+./brain-cli -input logs/app.log -enhanced-post -statistical-threshold
+
+# Use custom parallel processing threshold
+./brain-cli -input logs/app.log -parallel-threshold 500
+
+# Fine-tune entropy-based variable detection (more aggressive)
+./brain-cli -input logs/app.log -enhanced-post -entropy-threshold 0.7
+
+# Limit consecutive wildcards in templates
+./brain-cli -input logs/app.log -enhanced-post -max-consecutive-wildcards 3
+
+# Ensure minimum content ratio in templates
+./brain-cli -input logs/app.log -enhanced-post -min-content-ratio 0.4
+
+# Custom timestamp detection parameters
+./brain-cli -input logs/app.log -enhanced-post -timestamp-min-digits 6 -timestamp-min-separators 1
 ```
 
 #### CLI Options
 
+##### Basic Options
 - `-input`: Input file path (required)
 - `-type`: File type: `auto`, `text`, `csv` (default: auto-detect)
 - `-csv-column`: CSV column name containing log messages (default: "message")
@@ -123,6 +142,20 @@ go build -o brain-cli ./cmd/brain-cli
 - `-min-count`: Minimum template count to display (default: 1)
 - `-format`: Output format: `table`, `json`, `csv` (default: table)
 - `-verbose`: Show log IDs for each template
+
+##### Enhanced Features
+- `-enhanced-post`: Enable enhanced post-processing for advanced variable detection
+- `-statistical-threshold`: Use statistical analysis for adaptive threshold calculation
+- `-parallel-threshold`: Minimum log count in group to enable parallel processing (default: 1000)
+- `-enhanced`: Enable all enhanced features (equivalent to `--enhanced-post --statistical-threshold`)
+
+##### Enhanced Features Tuning Parameters
+- `-entropy-threshold`: Threshold for entropy-based variable detection, lower = more aggressive (default: 0.85)
+- `-min-entropy-length`: Minimum word length for entropy analysis (default: 10)
+- `-max-consecutive-wildcards`: Maximum consecutive `<*>` tokens in template, 0 = no limit (default: 5)
+- `-min-content-ratio`: Minimum ratio of non-`<*>` words in template (default: 0.25)
+- `-timestamp-min-digits`: Minimum digits for timestamp detection (default: 8)
+- `-timestamp-min-separators`: Minimum separators for timestamp detection (default: 2)
 
 ## Examples
 
