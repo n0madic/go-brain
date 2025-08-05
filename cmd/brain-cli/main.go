@@ -1,3 +1,4 @@
+// Package main provides a command-line interface for the Brain log parser.
 package main
 
 import (
@@ -92,11 +93,15 @@ func main() {
 
 // readInputFile reads log lines from various file formats
 func readInputFile(filename, fileType, csvColumn, logRegex string) ([]string, error) {
-	file, err := os.Open(filename)
+	file, err := os.Open(filename) // #nosec G304
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close file: %v\n", closeErr)
+		}
+	}()
 
 	// Auto-detect file type if not specified
 	if fileType == "auto" {
@@ -222,9 +227,8 @@ func outputTable(results []*parser.ParseResult, verbose bool) {
 	fmt.Println(strings.Repeat("-", 86+func() int {
 		if verbose {
 			return 20
-		} else {
-			return 0
 		}
+		return 0
 	}()))
 
 	for _, result := range results {
@@ -265,7 +269,9 @@ func outputCSV(results []*parser.ParseResult, verbose bool) {
 	if verbose {
 		header = append(header, "log_ids")
 	}
-	writer.Write(header)
+	if err := writer.Write(header); err != nil {
+		log.Printf("Error writing CSV header: %v", err)
+	}
 
 	// Write data
 	for _, result := range results {
@@ -273,7 +279,9 @@ func outputCSV(results []*parser.ParseResult, verbose bool) {
 		if verbose {
 			record = append(record, fmt.Sprintf("%v", result.LogIDs))
 		}
-		writer.Write(record)
+		if err := writer.Write(record); err != nil {
+			log.Printf("Error writing CSV record: %v", err)
+		}
 	}
 }
 

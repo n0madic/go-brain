@@ -1,3 +1,4 @@
+// Package main demonstrates the Brain log parser with example data from the research paper.
 package main
 
 import (

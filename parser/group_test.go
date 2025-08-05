@@ -44,24 +44,24 @@ func TestCreateInitialGroups(t *testing.T) {
 	}
 
 	// Check that logs are grouped correctly
-	var groupA_found, groupB_found, groupC_found bool
+	var groupAFound, groupBFound, groupCFound bool
 	for _, group := range groups {
 		if len(group.Logs) == 2 { // Group A
 			if group.Pattern.Words[0].Value == "A" && group.Pattern.Words[1].Value == "common" {
-				groupA_found = true
+				groupAFound = true
 			}
 		}
 		if len(group.Logs) == 1 {
 			if len(group.Pattern.Words) == 2 && group.Pattern.Words[0].Value == "B" { // Group B
-				groupB_found = true
+				groupBFound = true
 			}
 			if len(group.Pattern.Words) == 1 && group.Pattern.Words[0].Value == "C" { // Group C
-				groupC_found = true
+				groupCFound = true
 			}
 		}
 	}
 
-	if !groupA_found || !groupB_found || !groupC_found {
-		t.Errorf("Failed to find all expected groups. A: %v, B: %v, C: %v", groupA_found, groupB_found, groupC_found)
+	if !groupAFound || !groupBFound || !groupCFound {
+		t.Errorf("Failed to find all expected groups. A: %v, B: %v, C: %v", groupAFound, groupBFound, groupCFound)
 	}
 }

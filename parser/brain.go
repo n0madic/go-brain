@@ -1,3 +1,4 @@
+// Package parser implements the Brain log parsing algorithm for extracting templates from log files.
 package parser
 
 import (
