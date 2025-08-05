@@ -6,7 +6,7 @@ import (
 )
 
 // GenerateTemplatesFromTree extracts templates from the ready tree.
-func (p *BrainParser) GenerateTemplatesFromTree(tree *BidirectionalTree) []*ParseResult {
+func (p *BrainParser) GenerateTemplatesFromTree(tree *BidirectionalTree, allLogs []*LogMessage) []*ParseResult {
 	var results []*ParseResult
 	baseTemplate := make(map[int]string)
 
@@ -27,6 +27,19 @@ func (p *BrainParser) GenerateTemplatesFromTree(tree *BidirectionalTree) []*Pars
 
 	// Recursively traverse child nodes and collect templates
 	p.collectTemplatesFromNode(tree.ChildDirectionRoot, baseTemplate, make(map[int]string), &results)
+
+	// Filter results to improve quality if enhanced features are enabled
+	if p.config.UseEnhancedPostProcessing && !p.config.isReparsing {
+		goodResults, badResults := p.filterLowQualityTemplates(results)
+
+		// Try to reparse bad results with relaxed settings
+		if len(badResults) > 0 {
+			reparsedResults := p.reparseWithRelaxedSettings(badResults, allLogs)
+			goodResults = append(goodResults, reparsedResults...)
+		}
+
+		return goodResults
+	}
 
 	return results
 }
@@ -130,7 +143,7 @@ func (p *BrainParser) buildCompleteTemplate(baseTemplate, pathTemplate map[int]s
 // shouldBeVariableWithConfig wraps the variable detection logic with config consideration
 func (p *BrainParser) shouldBeVariableWithConfig(word string) bool {
 	if p.config.UseEnhancedPostProcessing {
-		return shouldBeVariableEnhanced(word)
+		return p.shouldBeVariableEnhanced(word)
 	}
 	return shouldBeVariable(word)
 }
@@ -209,7 +222,7 @@ func containsMixedPatterns(word string) bool {
 
 // shouldBeVariableEnhanced implements enhanced variable detection from Drain+
 // This version uses more sophisticated heuristics and pattern matching
-func shouldBeVariableEnhanced(word string) bool {
+func (p *BrainParser) shouldBeVariableEnhanced(word string) bool {
 	// First, check with the standard algorithm
 	if shouldBeVariable(word) {
 		return true
@@ -222,8 +235,8 @@ func shouldBeVariableEnhanced(word string) bool {
 		return true
 	}
 
-	// 2. Check for timestamp-like patterns not caught by regex
-	if looksLikeTimestamp(word) {
+	// 2. Check for timestamp-like patterns not caught by regex (with config)
+	if p.looksLikeTimestamp(word) {
 		return true
 	}
 
@@ -237,8 +250,8 @@ func shouldBeVariableEnhanced(word string) bool {
 		return true
 	}
 
-	// 5. High entropy check (indicates randomness)
-	if hasHighEntropy(word) {
+	// 5. High entropy check (indicates randomness) with config
+	if p.hasHighEntropy(word) {
 		return true
 	}
 
@@ -277,7 +290,7 @@ func hasComplexPattern(word string) bool {
 }
 
 // looksLikeTimestamp checks for timestamp-like patterns
-func looksLikeTimestamp(word string) bool {
+func (p *BrainParser) looksLikeTimestamp(word string) bool {
 	// Check for patterns like 2023-01-15, 15:30:45, 1673789445
 	digitCount := 0
 	separatorCount := 0
@@ -290,8 +303,8 @@ func looksLikeTimestamp(word string) bool {
 		}
 	}
 
-	// Timestamp-like: mostly digits with some separators
-	return digitCount >= 6 && (separatorCount >= 2 || digitCount >= 10)
+	// Timestamp-like: mostly digits with some separators (using config values)
+	return digitCount >= p.config.TimestampMinDigits && separatorCount >= p.config.TimestampMinSeparators
 }
 
 // looksLikeHash checks for hash-like patterns
@@ -343,8 +356,8 @@ func looksLikeEncoded(word string) bool {
 }
 
 // hasHighEntropy calculates Shannon entropy to detect random strings
-func hasHighEntropy(word string) bool {
-	if len(word) < 8 {
+func (p *BrainParser) hasHighEntropy(word string) bool {
+	if len(word) < p.config.MinEntropyLength {
 		return false
 	}
 
@@ -368,6 +381,190 @@ func hasHighEntropy(word string) bool {
 	// Normalize by word length (longer words naturally have higher entropy)
 	normalizedEntropy := entropy / math.Log2(wordLen)
 
-	// High entropy indicates randomness (likely a variable)
-	return normalizedEntropy > 0.7
+	// High entropy indicates randomness (likely a variable) - using config threshold
+	return normalizedEntropy > p.config.EntropyThreshold
+}
+
+// filterLowQualityTemplates separates templates into quality and low-quality groups
+func (p *BrainParser) filterLowQualityTemplates(results []*ParseResult) (good []*ParseResult, bad []*ParseResult) {
+	for _, result := range results {
+		if p.isQualityTemplate(result.Template) {
+			good = append(good, result)
+		} else {
+			bad = append(bad, result)
+		}
+	}
+
+	return good, bad
+}
+
+// isQualityTemplate checks if a template meets quality criteria
+func (p *BrainParser) isQualityTemplate(template string) bool {
+	tokens := strings.Fields(template)
+	if len(tokens) == 0 {
+		return false
+	}
+
+	// Count consecutive wildcards and content words
+	wildcardCount := 0
+	maxConsecutiveWildcards := 0
+	currentConsecutive := 0
+	contentWords := 0
+
+	for _, token := range tokens {
+		if token == "<*>" {
+			wildcardCount++
+			currentConsecutive++
+			if currentConsecutive > maxConsecutiveWildcards {
+				maxConsecutiveWildcards = currentConsecutive
+			}
+		} else {
+			contentWords++
+			currentConsecutive = 0
+		}
+	}
+
+	// Filter based on config parameters
+
+	// 1. Check maximum consecutive wildcards (if configured)
+	if p.config.MaxConsecutiveWildcards > 0 && maxConsecutiveWildcards > p.config.MaxConsecutiveWildcards {
+		return false
+	}
+
+	// 2. Check minimum content words ratio
+	contentRatio := float64(contentWords) / float64(len(tokens))
+	if contentRatio < p.config.MinContentWordsRatio {
+		return false
+	}
+
+	// 3. Skip templates that are just wildcards
+	if wildcardCount == len(tokens) {
+		return false
+	}
+
+	return true
+}
+
+// extractLogsFromResults extracts all unique logs from a slice of ParseResults
+func extractLogsFromResults(results []*ParseResult, allLogs []*LogMessage) []*LogMessage {
+	var extractedLogs []*LogMessage
+	seenLogIDs := make(map[int]bool)
+
+	for _, result := range results {
+		for _, logID := range result.LogIDs {
+			if !seenLogIDs[logID] && logID < len(allLogs) {
+				extractedLogs = append(extractedLogs, allLogs[logID])
+				seenLogIDs[logID] = true
+			}
+		}
+	}
+
+	return extractedLogs
+}
+
+// reparseWithRelaxedSettings attempts to reparse low-quality templates with progressively relaxed settings
+func (p *BrainParser) reparseWithRelaxedSettings(badResults []*ParseResult, allLogs []*LogMessage) []*ParseResult {
+	if len(badResults) == 0 {
+		return nil
+	}
+
+	// Extract logs from bad results
+	logsToReparse := extractLogsFromResults(badResults, allLogs)
+	if len(logsToReparse) == 0 {
+		return badResults // Return original bad results if nothing to reparse
+	}
+
+	// Convert LogMessage slice to string slice for reparsing
+	logLines := make([]string, len(logsToReparse))
+	for i, log := range logsToReparse {
+		logLines[i] = log.Content
+	}
+
+	var allGoodResults []*ParseResult
+
+	// Level 1: Relaxed enhanced parameters
+	relaxedConfig := p.config
+	relaxedConfig.EntropyThreshold = 0.95
+	relaxedConfig.MinEntropyLength = 15
+	relaxedConfig.TimestampMinDigits = 10
+	relaxedConfig.isReparsing = true
+
+	if results := p.tryReparseWithConfig(logLines, relaxedConfig); len(results) > 0 {
+		if goodResults, _ := p.filterLowQualityTemplatesWithConfig(results, relaxedConfig); len(goodResults) > 0 {
+			allGoodResults = append(allGoodResults, goodResults...)
+			// Remove processed logs and continue with remaining
+			processedLogIDs := make(map[int]bool)
+			for _, result := range goodResults {
+				for _, logID := range result.LogIDs {
+					processedLogIDs[logID] = true
+				}
+			}
+			logLines = p.removeProcessedLogs(logLines, logsToReparse, processedLogIDs)
+		}
+	}
+
+	// Level 2: Disable enhanced post-processing
+	if len(logLines) > 0 {
+		noEnhancedConfig := p.config
+		noEnhancedConfig.UseEnhancedPostProcessing = false
+		noEnhancedConfig.isReparsing = true
+
+		if results := p.tryReparseWithConfig(logLines, noEnhancedConfig); len(results) > 0 {
+			if goodResults, _ := p.filterLowQualityTemplatesWithConfig(results, noEnhancedConfig); len(goodResults) > 0 {
+				allGoodResults = append(allGoodResults, goodResults...)
+				// Remove processed logs and continue with remaining
+				processedLogIDs := make(map[int]bool)
+				for _, result := range goodResults {
+					for _, logID := range result.LogIDs {
+						processedLogIDs[logID] = true
+					}
+				}
+				logLines = p.removeProcessedLogs(logLines, logsToReparse, processedLogIDs)
+			}
+		}
+	}
+
+	// Level 3: Original Brain algorithm (no enhancements)
+	if len(logLines) > 0 {
+		originalConfig := p.config
+		originalConfig.UseEnhancedPostProcessing = false
+		originalConfig.UseStatisticalThreshold = false
+		originalConfig.isReparsing = true
+
+		if results := p.tryReparseWithConfig(logLines, originalConfig); len(results) > 0 {
+			// For original Brain, accept any results (no further filtering)
+			allGoodResults = append(allGoodResults, results...)
+		}
+	}
+
+	// Return combined results, or original bad results if nothing worked
+	if len(allGoodResults) > 0 {
+		return allGoodResults
+	}
+	return badResults
+}
+
+// removeProcessedLogs removes logs that have been successfully processed from the remaining log lines
+func (p *BrainParser) removeProcessedLogs(logLines []string, originalLogs []*LogMessage, processedLogIDs map[int]bool) []string {
+	var remaining []string
+	for i, log := range originalLogs {
+		if i < len(logLines) && !processedLogIDs[log.ID] {
+			remaining = append(remaining, logLines[i])
+		}
+	}
+	return remaining
+}
+
+// tryReparseWithConfig attempts to reparse logs with given configuration
+func (p *BrainParser) tryReparseWithConfig(logLines []string, config Config) []*ParseResult {
+	// Create new parser with modified config
+	reparseParser := New(config)
+	return reparseParser.Parse(logLines)
+}
+
+// filterLowQualityTemplatesWithConfig is a helper for reparsing with specific config
+func (p *BrainParser) filterLowQualityTemplatesWithConfig(results []*ParseResult, config Config) (good []*ParseResult, bad []*ParseResult) {
+	// Create temporary parser with the config to use its quality check
+	tempParser := &BrainParser{config: config}
+	return tempParser.filterLowQualityTemplates(results)
 }

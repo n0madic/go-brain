@@ -87,4 +87,15 @@ type Config struct {
 	UseEnhancedPostProcessing   bool              // Enable enhanced post-processing from Drain+ (default: false)
 	UseStatisticalThreshold     bool              // Use statistical analysis for threshold calculation (default: false)
 	ParallelProcessingThreshold int               // Minimum log count in group to enable parallel processing (default: 1000)
+
+	// Enhanced Features Tuning Parameters
+	EntropyThreshold        float64 // Threshold for entropy-based variable detection (default: 0.85, lower = more aggressive)
+	MinEntropyLength        int     // Minimum word length for entropy analysis (default: 10)
+	MaxConsecutiveWildcards int     // Maximum consecutive <*> tokens in template (default: 5, 0 = no limit)
+	MinContentWordsRatio    float64 // Minimum ratio of non-<*> words in template (default: 0.3)
+	TimestampMinDigits      int     // Minimum digits for timestamp detection (default: 8)
+	TimestampMinSeparators  int     // Minimum separators for timestamp detection (default: 2)
+
+	// Internal flags
+	isReparsing bool // Internal flag to prevent infinite recursion during reparsing
 }

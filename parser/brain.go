@@ -9,7 +9,8 @@ import (
 
 // BrainParser - main parser structure.
 type BrainParser struct {
-	config Config
+	config       Config
+	preprocessor *Preprocessor // Cached preprocessor with compiled regexes
 }
 
 // New creates a new BrainParser instance with the given configuration.
@@ -31,18 +32,71 @@ func New(config Config) *BrainParser {
 		config.ParallelProcessingThreshold = 1000 // Default: enable parallel processing for groups with 1000+ logs
 	}
 
+	// Enhanced Features Tuning Parameters defaults
+	if config.EntropyThreshold == 0 {
+		config.EntropyThreshold = 0.85 // More conservative than original 0.7
+	}
+	if config.MinEntropyLength == 0 {
+		config.MinEntropyLength = 10 // Longer than original 8
+	}
+	if config.MaxConsecutiveWildcards == 0 {
+		config.MaxConsecutiveWildcards = 5 // Limit consecutive <*>
+	}
+	if config.MinContentWordsRatio == 0 {
+		config.MinContentWordsRatio = 0.25 // At least 25% content words
+	}
+	if config.TimestampMinDigits == 0 {
+		config.TimestampMinDigits = 8 // More conservative than original 6
+	}
+	if config.TimestampMinSeparators == 0 {
+		config.TimestampMinSeparators = 2 // Same as original
+	}
+
 	// Add default CommonVariables patterns if none provided
 	if config.CommonVariables == nil {
 		config.CommonVariables = getDefaultCommonVariables()
 	}
 
-	return &BrainParser{config: config}
+	// Create preprocessor once with compiled regexes for performance
+	preprocessor := NewPreprocessor(config.Delimiters, config.CommonVariables)
+
+	return &BrainParser{
+		config:       config,
+		preprocessor: preprocessor,
+	}
 }
 
 // getDefaultCommonVariables returns default patterns for common variable types
 // These patterns help identify variables that should be replaced with <*> during preprocessing
+// Patterns are ordered by specificity - more specific patterns first to prevent simple patterns from matching
 func getDefaultCommonVariables() map[string]string {
 	return map[string]string{
+		// Time and date patterns (FIRST - most specific)
+		// Full datetime patterns
+		"iso_datetime_with_ms": `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z?$`,  // 2024-01-15T10:30:15.123Z
+		"iso_datetime":         `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z?$`,         // 2024-01-15T10:30:15Z
+		"iso_datetime_space":   `^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{3})?$`, // 2024-01-15 10:30:15.123
+		"european_datetime":    `^\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2}$`,           // 15/01/2024 10:30:15
+		"us_datetime":          `^\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2}$`,           // 01/15/2024 10:30:15
+		"syslog_datetime":      `^[A-Z][a-z]{2} \d{1,2} \d{2}:\d{2}:\d{2}$`,       // Jan 15 10:30:15
+
+		// Date-only patterns (after full datetime)
+		"iso_date":             `^\d{4}-\d{2}-\d{2}$`,           // 2024-01-15
+		"european_date":        `^\d{2}/\d{2}/\d{4}$`,           // 15/01/2024
+		"us_date":              `^\d{2}/\d{2}/\d{4}$`,           // 01/15/2024
+		"date_with_dots":       `^\d{2}\.\d{2}\.\d{4}$`,         // 15.01.2024
+		"date_with_slashes":    `^\d{4}/\d{2}/\d{2}$`,           // 2025/07/31
+		"date_with_month_name": `^\d{1,2}-[A-Z][a-z]{2}-\d{4}$`, // 31-Jul-2025
+
+		// Time-only patterns
+		"time_with_seconds": `^\d{2}:\d{2}:\d{2}$`,        // 10:30:15
+		"time_with_ms":      `^\d{2}:\d{2}:\d{2}\.\d{3}$`, // 10:30:15.123
+		"time_simple":       `^\d{2}:\d{2}$`,              // 10:30
+
+		// Unix timestamps
+		"unix_timestamp_ms": `^\d{13}$`, // Milliseconds timestamp
+		"unix_timestamp":    `^\d{10}$`, // Seconds timestamp
+
 		// Network-related patterns
 		"ipv4_address":  `^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`,      // IPv4 addresses
 		"ipv4_port":     `^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$`,  // IPv4:port combinations
@@ -50,19 +104,7 @@ func getDefaultCommonVariables() map[string]string {
 		"mac_address":   `^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$`, // MAC addresses
 		"hostname_port": `^[a-zA-Z0-9.-]+:\d+$`,                      // hostname:port combinations
 
-		// Identifiers and numbers
-		"pure_numbers": `^\d+$`,                                                                         // Pure numeric values
-		"hex_numbers":  `^0x[a-fA-F0-9]+$`,                                                              // Hexadecimal numbers
-		"uuid":         `^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$`, // UUIDs
-		"block_ids":    `^blk_[-]?\d+$`,                                                                 // Block IDs like blk_123
-		"session_id":   `^[a-zA-Z0-9]{16,}$`,                                                            // Session IDs (16+ alphanumeric)
-
-		// Time and date patterns
-		"timestamps":     `^\d{2}:\d{2}:\d{2}$`,                  // Time stamps (HH:MM:SS)
-		"iso_datetime":   `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}`, // ISO 8601 datetime
-		"unix_timestamp": `^\d{10,13}$`,                          // Unix timestamps (seconds or milliseconds)
-
-		// File and system patterns
+		// File and system patterns (before pure numbers)
 		"file_sizes":   `^\d+[KMGT]?B$`,                       // File sizes like 123KB, 4GB
 		"unix_path":    `^(/[a-zA-Z0-9._-]+)+/?$`,             // Unix file paths
 		"windows_path": `^[A-Za-z]:\\(\\[^\\/:*?"<>|]+)*\\?$`, // Windows file paths
@@ -72,17 +114,32 @@ func getDefaultCommonVariables() map[string]string {
 		"url":   `^https?://[^\s]+$`,                                // URLs
 		"email": `^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`, // Email addresses
 
-		// Version and metrics patterns
-		"version":     `^v?\d+\.\d+(\.\d+)?(-[a-zA-Z0-9._-]+)?$`, // Software versions
-		"percentages": `^\d{1,3}%$`,                              // Percentage values
-		"memory_addr": `^0x[0-9a-fA-F]+$`,                        // Memory addresses
+		// Identifiers and special numbers (before pure numbers)
+		"hex_numbers": `^0x[a-fA-F0-9]+$`,                                                              // Hexadecimal numbers
+		"uuid":        `^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$`, // UUIDs
+		"block_ids":   `^blk_[-]?\d+$`,                                                                 // Block IDs like blk_123
+		"session_id":  `^[a-zA-Z0-9]{16,}$`,                                                            // Session IDs (16+ alphanumeric)
+		"version":     `^v?\d+\.\d+(\.\d+)?(-[a-zA-Z0-9._-]+)?$`,                                       // Software versions
+		"percentages": `^\d{1,3}%$`,                                                                    // Percentage values
+		"memory_addr": `^0x[0-9a-fA-F]+$`,                                                              // Memory addresses
+
+		// Common log datetime fragments (after being split by tokenizer)
+		// Month names for syslog format
+		"month_names": `^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$`, // Month abbreviations
+		// Common datetime fragments in logs after tokenization
+		"bracket_date":          `^\[\d{1,2}-[A-Z][a-z]{2}-\d{4}$`,                     // [31-Jul-2025
+		"bracket_time":          `^\d{2}:\d{2}:\d{2}\]$`,                               // 01:17:58]
+		"bracket_datetime_full": `^\[\d{1,2}-[A-Z][a-z]{2}-\d{4} \d{2}:\d{2}:\d{2}\]$`, // [31-Jul-2025 01:17:58]
+
+		// Pure numbers (LAST - least specific, catches everything else)
+		"pure_numbers": `^\d+$`, // Pure numeric values
 	}
 }
 
 // Parse analyzes a slice of log lines and returns found patterns.
 func (p *BrainParser) Parse(logLines []string) []*ParseResult {
-	preprocessor := NewPreprocessor(p.config.Delimiters, p.config.CommonVariables)
-	processedLogs := preprocessor.PreprocessLogs(logLines)
+	// Use cached preprocessor with pre-compiled regexes for performance
+	processedLogs := p.preprocessor.PreprocessLogs(logLines)
 
 	initialGroups := CreateInitialGroups(processedLogs, &p.config)
 
@@ -105,7 +162,7 @@ func (p *BrainParser) Parse(logLines []string) []*ParseResult {
 
 	if shouldUseParallel {
 		// Parallel processing for large groups
-		allTemplates = p.processGroupsParallel(groupSlice)
+		allTemplates = p.processGroupsParallel(groupSlice, processedLogs)
 	} else {
 		// Sequential processing for small groups
 		for _, group := range groupSlice {
@@ -115,7 +172,7 @@ func (p *BrainParser) Parse(logLines []string) []*ParseResult {
 			// Step 5: Generate templates from tree
 			// GenerateTemplatesFromTree performs complete template extraction with full
 			// bidirectional tree traversal, iterative parent updates, and proper log tracking
-			templates := p.GenerateTemplatesFromTree(tree)
+			templates := p.GenerateTemplatesFromTree(tree, processedLogs)
 			allTemplates = append(allTemplates, templates...)
 		}
 	}
@@ -214,7 +271,7 @@ func (p *BrainParser) calculateStatisticalThreshold(uniqueWordsCount int) int {
 }
 
 // processGroupsParallel processes log groups in parallel for better performance on large datasets
-func (p *BrainParser) processGroupsParallel(groups []*LogGroup) []*ParseResult {
+func (p *BrainParser) processGroupsParallel(groups []*LogGroup, allLogs []*LogMessage) []*ParseResult {
 	// Create channels for work distribution and result collection
 	type workItem struct {
 		group *LogGroup
@@ -238,7 +295,7 @@ func (p *BrainParser) processGroupsParallel(groups []*LogGroup) []*ParseResult {
 			for work := range workChan {
 				// Process the group
 				tree := p.BuildTreeForGroup(work.group)
-				templates := p.GenerateTemplatesFromTree(tree)
+				templates := p.GenerateTemplatesFromTree(tree, allLogs)
 				resultsChan <- templates
 			}
 		}()
