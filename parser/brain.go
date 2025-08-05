@@ -8,6 +8,12 @@ import (
 	"unique"
 )
 
+// Safety constants to prevent excessive memory usage
+const (
+	MaxWordsPerLog       = 1000 // Maximum words per log message
+	MaxParentWordsLength = 500  // Maximum length for ParentWords slice
+)
+
 // BrainParser - main parser structure.
 type BrainParser struct {
 	config       Config
@@ -334,7 +340,7 @@ func (p *BrainParser) processGroupsParallel(groups []*LogGroup, allLogs []*LogMe
 	}
 	close(workChan)
 
-	// Wait for all workers to complete
+	// Wait for all workers to complete and close results channel
 	go func() {
 		wg.Wait()
 		close(resultsChan)
@@ -547,28 +553,52 @@ func (p *BrainParser) iterativelyUpdateParentNodes(tree *BidirectionalTree, node
 
 		// Store the result for this position
 		if parentNode.IsVariable {
-			if len(node.ParentWords) > parentPos {
-				// Ensure we don't have index out of bounds
-				// Find the max position we need to support
-				maxPos := parentPos
-				for _, log := range subGroupLogs {
-					if len(log.Words)-1 > maxPos {
-						maxPos = len(log.Words) - 1
-					}
-				}
-				// Extend slice if needed
-				for len(node.ParentWords) <= maxPos {
-					node.ParentWords = append(node.ParentWords, unique.Make(""))
-				}
-				node.ParentWords[parentPos] = unique.Make("<*>")
-			}
+			p.setVariableInParentWords(node, parentPos, subGroupLogs)
 		} else if constantWord != "" {
-			// Ensure we have enough capacity
-			for len(node.ParentWords) <= parentPos {
-				node.ParentWords = append(node.ParentWords, unique.Make(""))
-			}
-			node.ParentWords[parentPos] = unique.Make(constantWord)
+			p.setConstantInParentWords(node, parentPos, constantWord)
 		}
+	}
+}
+
+// setVariableInParentWords sets a variable marker in parent words with bounds checking
+func (p *BrainParser) setVariableInParentWords(node *Node, parentPos int, subGroupLogs []*LogMessage) {
+	if len(node.ParentWords) <= parentPos {
+		return
+	}
+
+	// Find the max position we need to support
+	maxPos := parentPos
+	for _, log := range subGroupLogs {
+		if len(log.Words)-1 > maxPos {
+			maxPos = len(log.Words) - 1
+		}
+	}
+
+	// Apply safety limit to prevent excessive memory usage
+	if maxPos > MaxParentWordsLength {
+		maxPos = MaxParentWordsLength
+	}
+
+	// Extend slice if needed, but with bounds checking
+	for len(node.ParentWords) <= maxPos && len(node.ParentWords) < MaxParentWordsLength {
+		node.ParentWords = append(node.ParentWords, unique.Make(""))
+	}
+
+	if parentPos < len(node.ParentWords) {
+		node.ParentWords[parentPos] = unique.Make("<*>")
+	}
+}
+
+// setConstantInParentWords sets a constant word in parent words with bounds checking
+func (p *BrainParser) setConstantInParentWords(node *Node, parentPos int, constantWord string) {
+	// Ensure we have enough capacity with bounds checking
+	for len(node.ParentWords) <= parentPos && len(node.ParentWords) < MaxParentWordsLength {
+		node.ParentWords = append(node.ParentWords, unique.Make(""))
+	}
+
+	// Only set if within bounds
+	if parentPos < MaxParentWordsLength && parentPos < len(node.ParentWords) {
+		node.ParentWords[parentPos] = unique.Make(constantWord)
 	}
 }
 
@@ -579,10 +609,10 @@ func getColumnWords(logs []*LogMessage) map[int][]Word {
 	if len(logs) == 0 {
 		return columnWords
 	}
-	numCols := len(logs[0].Words)
-	for i := 0; i < numCols; i++ {
+	numCols := min(len(logs[0].Words), MaxWordsPerLog)
+	for i := range numCols {
 		for _, log := range logs {
-			if i < len(log.Words) {
+			if i < len(log.Words) && i < MaxWordsPerLog {
 				columnWords[i] = append(columnWords[i], log.Words[i])
 			}
 		}

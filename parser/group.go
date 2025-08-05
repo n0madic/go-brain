@@ -30,30 +30,19 @@ func CreateInitialGroups(logs []*LogMessage, config *Config) map[string]*LogGrou
 			}
 		}
 
-		// Form final groups
+		// Form final groups with length-aware keys to prevent collisions
 		for key, logList := range logsByPattern {
-			// Check if this key already exists in finalGroups - THIS MIGHT BE THE BUG
-			if _, exists := finalGroups[key]; exists {
-				// Key collision! Two different length groups have the same LCP key
-				// This means we're overwriting the previous group
-				// We should NOT overwrite - we should combine or create unique keys
+			// Always include length in the key to prevent collisions between groups of different lengths
+			sb := GetStringBuilder()
+			sb.WriteString(key)
+			sb.WriteString("-len:")
+			writeInt(sb, length)
+			uniqueKey := sb.String()
+			PutStringBuilder(sb)
 
-				// For now, let's create a unique key by adding length info
-				sb := GetStringBuilder()
-				sb.WriteString(key)
-				sb.WriteString("-len:")
-				writeInt(sb, length)
-				uniqueKey := sb.String()
-				PutStringBuilder(sb)
-				finalGroups[uniqueKey] = &LogGroup{
-					Pattern: patterns[key],
-					Logs:    logList,
-				}
-			} else {
-				finalGroups[key] = &LogGroup{
-					Pattern: patterns[key],
-					Logs:    logList,
-				}
+			finalGroups[uniqueKey] = &LogGroup{
+				Pattern: patterns[key],
+				Logs:    logList,
 			}
 		}
 	}

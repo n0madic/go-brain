@@ -249,6 +249,15 @@ func ReleaseBidirectionalTree(tree *BidirectionalTree) {
 		return
 	}
 
+	// Use defer to ensure cleanup even if panic occurs
+	defer func() {
+		if r := recover(); r != nil {
+			// Log panic but don't propagate - resource cleanup should be non-fatal
+			// In production, this could be logged to structured logger
+			_ = r // Silently handle for now
+		}
+	}()
+
 	// Release parent direction nodes
 	for _, node := range tree.ParentDirection {
 		releaseNodeRecursively(node)
@@ -265,6 +274,15 @@ func releaseNodeRecursively(node *Node) {
 	if node == nil {
 		return
 	}
+
+	// Use defer to ensure cleanup even if panic occurs during recursion
+	defer func() {
+		if r := recover(); r != nil {
+			// Log panic but don't propagate - resource cleanup should be non-fatal
+			// In production, this could be logged to structured logger
+			_ = r // Silently handle for now
+		}
+	}()
 
 	// Release all child nodes recursively
 	for _, child := range node.Children {
