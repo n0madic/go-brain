@@ -25,7 +25,6 @@ linters:
     - forcetypeassert
     - ginkgolinter
     - gocheckcompilerdirectives
-    - gochecknoglobals
     - gochecknoinits
     - gocritic
     - gocyclo
@@ -46,7 +45,6 @@ linters:
     - nilnil
     - noctx
     - nolintlint
-    - nonamedreturns
     - nosprintfhostport
     - predeclared
     - promlinter
