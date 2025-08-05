@@ -78,10 +78,13 @@ type ParseResult struct {
 
 // Config contains the configuration of the Brain algorithm.
 type Config struct {
-	Delimiters             string            // Regex for splitting tokens
-	CommonVariables        map[string]string // Map of patterns for filtering common variables: "name" -> "regex"
-	ChildBranchThreshold   int               // Threshold for creating new branches in child direction (fallback value)
-	Weight                 float64           // Weight parameter for frequency threshold (0.0-1.0)
-	UseDynamicThreshold    bool              // Whether to use dynamic threshold calculation
-	DynamicThresholdFactor float64           // Factor for dynamic threshold (default: 2.0)
+	Delimiters                  string            // Regex for splitting tokens
+	CommonVariables             map[string]string // Map of patterns for filtering common variables: "name" -> "regex"
+	ChildBranchThreshold        int               // Threshold for creating new branches in child direction (fallback value)
+	Weight                      float64           // Weight parameter for frequency threshold (0.0-1.0)
+	UseDynamicThreshold         bool              // Whether to use dynamic threshold calculation
+	DynamicThresholdFactor      float64           // Factor for dynamic threshold (default: 2.0)
+	UseEnhancedPostProcessing   bool              // Enable enhanced post-processing from Drain+ (default: false)
+	UseStatisticalThreshold     bool              // Use statistical analysis for threshold calculation (default: false)
+	ParallelProcessingThreshold int               // Minimum log count in group to enable parallel processing (default: 1000)
 }

@@ -3,6 +3,7 @@ package parser
 import (
 	"math"
 	"sort"
+	"sync"
 )
 
 // BrainParser - main parser structure.
@@ -25,6 +26,9 @@ func New(config Config) *BrainParser {
 	if config.DynamicThresholdFactor == 0 {
 		config.DynamicThresholdFactor = 2.0 // Default factor for dynamic threshold
 	}
+	if config.ParallelProcessingThreshold == 0 {
+		config.ParallelProcessingThreshold = 1000 // Default: enable parallel processing for groups with 1000+ logs
+	}
 
 	// Add default CommonVariables patterns if none provided
 	if config.CommonVariables == nil {
@@ -38,16 +42,39 @@ func New(config Config) *BrainParser {
 // These patterns help identify variables that should be replaced with <*> during preprocessing
 func getDefaultCommonVariables() map[string]string {
 	return map[string]string{
-		"ipv4_address":  `^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`,                                          // IPv4 addresses
-		"ipv4_port":     `^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$`,                                      // IPv4:port combinations
-		"hostname_port": `^[a-zA-Z0-9.-]+:\d+$`,                                                          // hostname:port combinations
-		"pure_numbers":  `^\d+$`,                                                                         // Pure numeric values
-		"hex_numbers":   `^0x[a-fA-F0-9]+$`,                                                              // Hexadecimal numbers
-		"timestamps":    `^\d{2}:\d{2}:\d{2}$`,                                                           // Time stamps (HH:MM:SS)
-		"block_ids":     `^blk_[-]?\d+$`,                                                                 // Block IDs like blk_123
-		"file_sizes":    `^\d+[KMGT]?B$`,                                                                 // File sizes like 123KB, 4GB
-		"percentages":   `^\d{1,3}%$`,                                                                    // Percentage values
-		"uuid":          `^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$`, // UUIDs
+		// Network-related patterns
+		"ipv4_address":  `^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`,      // IPv4 addresses
+		"ipv4_port":     `^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$`,  // IPv4:port combinations
+		"ipv6_address":  `^([0-9a-fA-F]{0,4}:){7}[0-9a-fA-F]{0,4}$`,  // IPv6 addresses
+		"mac_address":   `^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$`, // MAC addresses
+		"hostname_port": `^[a-zA-Z0-9.-]+:\d+$`,                      // hostname:port combinations
+
+		// Identifiers and numbers
+		"pure_numbers": `^\d+$`,                                                                         // Pure numeric values
+		"hex_numbers":  `^0x[a-fA-F0-9]+$`,                                                              // Hexadecimal numbers
+		"uuid":         `^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$`, // UUIDs
+		"block_ids":    `^blk_[-]?\d+$`,                                                                 // Block IDs like blk_123
+		"session_id":   `^[a-zA-Z0-9]{16,}$`,                                                            // Session IDs (16+ alphanumeric)
+
+		// Time and date patterns
+		"timestamps":     `^\d{2}:\d{2}:\d{2}$`,                  // Time stamps (HH:MM:SS)
+		"iso_datetime":   `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}`, // ISO 8601 datetime
+		"unix_timestamp": `^\d{10,13}$`,                          // Unix timestamps (seconds or milliseconds)
+
+		// File and system patterns
+		"file_sizes":   `^\d+[KMGT]?B$`,                       // File sizes like 123KB, 4GB
+		"unix_path":    `^(/[a-zA-Z0-9._-]+)+/?$`,             // Unix file paths
+		"windows_path": `^[A-Za-z]:\\(\\[^\\/:*?"<>|]+)*\\?$`, // Windows file paths
+		"filename_ext": `^[a-zA-Z0-9._-]+\.[a-zA-Z]{2,4}$`,    // Filenames with extensions
+
+		// Web and email patterns
+		"url":   `^https?://[^\s]+$`,                                // URLs
+		"email": `^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`, // Email addresses
+
+		// Version and metrics patterns
+		"version":     `^v?\d+\.\d+(\.\d+)?(-[a-zA-Z0-9._-]+)?$`, // Software versions
+		"percentages": `^\d{1,3}%$`,                              // Percentage values
+		"memory_addr": `^0x[0-9a-fA-F]+$`,                        // Memory addresses
 	}
 }
 
@@ -60,15 +87,36 @@ func (p *BrainParser) Parse(logLines []string) []*ParseResult {
 
 	var allTemplates []*ParseResult
 
+	// Convert map to slice for processing
+	groupSlice := make([]*LogGroup, 0, len(initialGroups))
 	for _, group := range initialGroups {
-		// Steps 3 and 4: Build tree for each group
-		tree := p.BuildTreeForGroup(group)
+		groupSlice = append(groupSlice, group)
+	}
 
-		// Step 5: Generate templates from tree
-		// GenerateTemplatesFromTree performs complete template extraction with full
-		// bidirectional tree traversal, iterative parent updates, and proper log tracking
-		templates := p.GenerateTemplatesFromTree(tree)
-		allTemplates = append(allTemplates, templates...)
+	// Determine if we should use parallel processing
+	shouldUseParallel := false
+	for _, group := range groupSlice {
+		if len(group.Logs) >= p.config.ParallelProcessingThreshold {
+			shouldUseParallel = true
+			break
+		}
+	}
+
+	if shouldUseParallel {
+		// Parallel processing for large groups
+		allTemplates = p.processGroupsParallel(groupSlice)
+	} else {
+		// Sequential processing for small groups
+		for _, group := range groupSlice {
+			// Steps 3 and 4: Build tree for each group
+			tree := p.BuildTreeForGroup(group)
+
+			// Step 5: Generate templates from tree
+			// GenerateTemplatesFromTree performs complete template extraction with full
+			// bidirectional tree traversal, iterative parent updates, and proper log tracking
+			templates := p.GenerateTemplatesFromTree(tree)
+			allTemplates = append(allTemplates, templates...)
+		}
 	}
 
 	// Aggregate identical templates
@@ -109,8 +157,16 @@ func (p *BrainParser) calculateDynamicThreshold(uniqueWordsCount int) int {
 		return p.config.ChildBranchThreshold
 	}
 
-	// Use natural logarithm as suggested in the paper discussion
-	dynamicThreshold := int(math.Log(float64(uniqueWordsCount)) * p.config.DynamicThresholdFactor)
+	var dynamicThreshold int
+
+	if p.config.UseStatisticalThreshold {
+		// Enhanced statistical threshold calculation from Drain+
+		dynamicThreshold = p.calculateStatisticalThreshold(uniqueWordsCount)
+	} else {
+		// Original Brain algorithm
+		// Use natural logarithm as suggested in the paper discussion
+		dynamicThreshold = int(math.Log(float64(uniqueWordsCount)) * p.config.DynamicThresholdFactor)
+	}
 
 	// Ensure minimum threshold of 2 to avoid too aggressive merging
 	if dynamicThreshold < 2 {
@@ -123,6 +179,106 @@ func (p *BrainParser) calculateDynamicThreshold(uniqueWordsCount int) int {
 	}
 
 	return dynamicThreshold
+}
+
+// calculateStatisticalThreshold uses statistical analysis for better threshold determination
+func (p *BrainParser) calculateStatisticalThreshold(uniqueWordsCount int) int {
+	// Base calculation using logarithm
+	baseThreshold := math.Log(float64(uniqueWordsCount)) * p.config.DynamicThresholdFactor
+
+	// Apply statistical adjustments based on Drain+ research
+	// 1. Adjust for small datasets (< 10 unique words)
+	if uniqueWordsCount < 10 {
+		// For small datasets, use a more conservative threshold
+		baseThreshold *= 1.5
+	}
+
+	// 2. Adjust for large datasets (> 100 unique words)
+	if uniqueWordsCount > 100 {
+		// For large datasets, use square root scaling to prevent over-splitting
+		baseThreshold = math.Sqrt(float64(uniqueWordsCount)) * p.config.DynamicThresholdFactor * 0.7
+	}
+
+	// 3. Apply smoothing based on standard deviation principle
+	// This helps handle edge cases where log growth might be too aggressive
+	smoothedThreshold := baseThreshold
+	if uniqueWordsCount > 20 && uniqueWordsCount < 100 {
+		// Apply sigmoid-like smoothing for mid-range values
+		x := float64(uniqueWordsCount-50) / 30.0
+		sigmoid := 1.0 / (1.0 + math.Exp(-x))
+		smoothedThreshold = baseThreshold * (0.7 + 0.6*sigmoid)
+	}
+
+	return int(smoothedThreshold)
+}
+
+// processGroupsParallel processes log groups in parallel for better performance on large datasets
+func (p *BrainParser) processGroupsParallel(groups []*LogGroup) []*ParseResult {
+	// Create channels for work distribution and result collection
+	type workItem struct {
+		group *LogGroup
+		index int
+	}
+
+	workChan := make(chan workItem, len(groups))
+	resultsChan := make(chan []*ParseResult, len(groups))
+
+	// Use a WaitGroup to track completion
+	var wg sync.WaitGroup
+
+	// Determine optimal number of workers
+	numWorkers := p.getOptimalWorkerCount(groups)
+
+	// Start worker goroutines
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for work := range workChan {
+				// Process the group
+				tree := p.BuildTreeForGroup(work.group)
+				templates := p.GenerateTemplatesFromTree(tree)
+				resultsChan <- templates
+			}
+		}()
+	}
+
+	// Send work to workers
+	for i, group := range groups {
+		workChan <- workItem{group: group, index: i}
+	}
+	close(workChan)
+
+	// Wait for all workers to complete
+	go func() {
+		wg.Wait()
+		close(resultsChan)
+	}()
+
+	// Collect results
+	var allTemplates []*ParseResult
+	for templates := range resultsChan {
+		allTemplates = append(allTemplates, templates...)
+	}
+
+	return allTemplates
+}
+
+// getOptimalWorkerCount determines the optimal number of workers based on groups and system
+func (p *BrainParser) getOptimalWorkerCount(groups []*LogGroup) int {
+	// Count groups that meet the parallel processing threshold
+	largeGroupCount := 0
+	for _, group := range groups {
+		if len(group.Logs) >= p.config.ParallelProcessingThreshold {
+			largeGroupCount++
+		}
+	}
+
+	// Base worker count on number of large groups
+	// But cap it to avoid excessive goroutine creation
+	numWorkers := max(min(largeGroupCount, 8), 2)
+
+	return numWorkers
 }
 
 // BuildTreeForGroup builds a bidirectional tree for one log group.

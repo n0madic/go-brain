@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"math"
 	"strings"
 )
 
@@ -112,7 +113,7 @@ func (p *BrainParser) buildCompleteTemplate(baseTemplate, pathTemplate map[int]s
 		word, ok := completeTemplate[i]
 		if ok {
 			// Apply enhanced post-processing to catch missed variables
-			if word != "<*>" && shouldBeVariable(word) {
+			if word != "<*>" && p.shouldBeVariableWithConfig(word) {
 				result[i] = "<*>"
 			} else {
 				result[i] = word
@@ -124,6 +125,14 @@ func (p *BrainParser) buildCompleteTemplate(baseTemplate, pathTemplate map[int]s
 	}
 
 	return strings.Join(result, " ")
+}
+
+// shouldBeVariableWithConfig wraps the variable detection logic with config consideration
+func (p *BrainParser) shouldBeVariableWithConfig(word string) bool {
+	if p.config.UseEnhancedPostProcessing {
+		return shouldBeVariableEnhanced(word)
+	}
+	return shouldBeVariable(word)
 }
 
 // shouldBeVariable checks if a token should be considered a variable during post-processing
@@ -196,4 +205,169 @@ func containsMixedPatterns(word string) bool {
 
 	// If we have at least 2 different types of characters AND meaningful digits, it's likely a variable
 	return mixedCount >= 2 && hasDigits && digitCount > 1
+}
+
+// shouldBeVariableEnhanced implements enhanced variable detection from Drain+
+// This version uses more sophisticated heuristics and pattern matching
+func shouldBeVariableEnhanced(word string) bool {
+	// First, check with the standard algorithm
+	if shouldBeVariable(word) {
+		return true
+	}
+
+	// Additional Drain+ heuristics
+
+	// 1. Check for mixed case with numbers (e.g., User123, ID_456)
+	if hasComplexPattern(word) {
+		return true
+	}
+
+	// 2. Check for timestamp-like patterns not caught by regex
+	if looksLikeTimestamp(word) {
+		return true
+	}
+
+	// 3. Check for hash-like patterns (common in logs)
+	if looksLikeHash(word) {
+		return true
+	}
+
+	// 4. Check for encoded data patterns
+	if looksLikeEncoded(word) {
+		return true
+	}
+
+	// 5. High entropy check (indicates randomness)
+	if hasHighEntropy(word) {
+		return true
+	}
+
+	return false
+}
+
+// hasComplexPattern checks for complex alphanumeric patterns
+func hasComplexPattern(word string) bool {
+	if len(word) < 4 {
+		return false
+	}
+
+	// Count transitions between character types
+	transitions := 0
+	prevType := 0 // 0: none, 1: letter, 2: digit, 3: special
+
+	for _, ch := range word {
+		currType := 0
+		switch {
+		case (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z'):
+			currType = 1
+		case ch >= '0' && ch <= '9':
+			currType = 2
+		case ch == '_' || ch == '-' || ch == '.':
+			currType = 3
+		}
+
+		if prevType != 0 && currType != 0 && prevType != currType {
+			transitions++
+		}
+		prevType = currType
+	}
+
+	// High number of transitions indicates a variable
+	return transitions >= 3
+}
+
+// looksLikeTimestamp checks for timestamp-like patterns
+func looksLikeTimestamp(word string) bool {
+	// Check for patterns like 2023-01-15, 15:30:45, 1673789445
+	digitCount := 0
+	separatorCount := 0
+
+	for _, ch := range word {
+		if ch >= '0' && ch <= '9' {
+			digitCount++
+		} else if ch == ':' || ch == '-' || ch == '/' || ch == '.' {
+			separatorCount++
+		}
+	}
+
+	// Timestamp-like: mostly digits with some separators
+	return digitCount >= 6 && (separatorCount >= 2 || digitCount >= 10)
+}
+
+// looksLikeHash checks for hash-like patterns
+func looksLikeHash(word string) bool {
+	if len(word) < 8 {
+		return false
+	}
+
+	// Count hex-like characters
+	hexCount := 0
+	for _, ch := range word {
+		if (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F') {
+			hexCount++
+		}
+	}
+
+	// If mostly hex characters and long enough, likely a hash
+	return float64(hexCount)/float64(len(word)) > 0.8 && len(word) >= 16
+}
+
+// looksLikeEncoded checks for base64 or other encoded patterns
+func looksLikeEncoded(word string) bool {
+	if len(word) < 8 {
+		return false
+	}
+
+	// Check for base64-like patterns
+	validChars := 0
+	for _, ch := range word {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+			(ch >= '0' && ch <= '9') || ch == '+' || ch == '/' || ch == '=' {
+			validChars++
+		}
+	}
+
+	// High ratio of base64 chars and ends with = padding
+	isBase64Like := float64(validChars)/float64(len(word)) > 0.95 &&
+		(strings.HasSuffix(word, "=") || strings.HasSuffix(word, "=="))
+
+	// Also check for high character diversity (typical in encoded data)
+	uniqueChars := make(map[rune]bool)
+	for _, ch := range word {
+		uniqueChars[ch] = true
+	}
+
+	highDiversity := float64(len(uniqueChars))/float64(len(word)) > 0.6
+
+	return isBase64Like || (len(word) >= 16 && highDiversity)
+}
+
+// hasHighEntropy calculates Shannon entropy to detect random strings
+func hasHighEntropy(word string) bool {
+	if len(word) < 8 {
+		return false
+	}
+
+	// Count character frequencies
+	freq := make(map[rune]int)
+	for _, ch := range word {
+		freq[ch]++
+	}
+
+	// Calculate Shannon entropy
+	entropy := 0.0
+	wordLen := float64(len(word))
+
+	for _, count := range freq {
+		probability := float64(count) / wordLen
+		if probability > 0 {
+			entropy -= probability * math.Log2(probability)
+		}
+	}
+
+	// Normalize by word length (longer words naturally have higher entropy)
+	normalizedEntropy := entropy / math.Log2(wordLen)
+
+	// High entropy indicates randomness (likely a variable)
+	return normalizedEntropy > 0.7
 }

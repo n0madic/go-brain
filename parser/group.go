@@ -134,14 +134,16 @@ func isTwoFrequencyVariableLog(combosByFreq map[int][]Word) bool {
 	return false
 }
 
+// Pre-compiled regex patterns for performance
+var (
+	numericPattern = regexp.MustCompile(`^\d+$`)                   // Pure numbers
+	ipPattern      = regexp.MustCompile(`^\d+\.\d+\.\d+\.\d+$`)    // IP addresses
+	idPattern      = regexp.MustCompile(`^[a-zA-Z]+_?\d+$`)        // ID patterns like "blk_123"
+	channelPattern = regexp.MustCompile(`^\d+\s+\d+\s+\d+\s+\d+$`) // Space-separated numbers
+)
+
 // hasVariablePatterns checks if words contain patterns typical for variables
 func hasVariablePatterns(words []Word) bool {
-	// Common variable patterns from the paper examples
-	numericPattern := regexp.MustCompile(`^\d+$`)                   // Pure numbers
-	ipPattern := regexp.MustCompile(`^\d+\.\d+\.\d+\.\d+$`)         // IP addresses
-	idPattern := regexp.MustCompile(`^[a-zA-Z]+_?\d+$`)             // ID patterns like "blk_123"
-	channelPattern := regexp.MustCompile(`^\d+\s+\d+\s+\d+\s+\d+$`) // Space-separated numbers
-
 	variableCount := 0
 	for _, word := range words {
 		if numericPattern.MatchString(word.Value) ||
