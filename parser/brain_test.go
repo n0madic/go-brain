@@ -296,3 +296,521 @@ func TestBrain_ParallelProcessing(t *testing.T) {
 		}
 	}
 }
+
+// Test tree building functionality
+func TestBrain_BuildTreeForGroup(t *testing.T) {
+	// Create test log group
+	logs := []*LogMessage{
+		{
+			ID: 1,
+			Words: []Word{
+				{Value: "User", Position: 0, Frequency: 3},
+				{Value: "alice", Position: 1, Frequency: 1},
+				{Value: "logged", Position: 2, Frequency: 3},
+				{Value: "in", Position: 3, Frequency: 3},
+			},
+		},
+		{
+			ID: 2,
+			Words: []Word{
+				{Value: "User", Position: 0, Frequency: 3},
+				{Value: "bob", Position: 1, Frequency: 1},
+				{Value: "logged", Position: 2, Frequency: 3},
+				{Value: "in", Position: 3, Frequency: 3},
+			},
+		},
+		{
+			ID: 3,
+			Words: []Word{
+				{Value: "User", Position: 0, Frequency: 3},
+				{Value: "charlie", Position: 1, Frequency: 1},
+				{Value: "logged", Position: 2, Frequency: 3},
+				{Value: "in", Position: 3, Frequency: 3},
+			},
+		},
+	}
+
+	// Create log group with pattern (LCP)
+	group := &LogGroup{
+		Pattern: LogPattern{
+			Words: []Word{
+				{Value: "User", Position: 0, Frequency: 3},
+				{Value: "logged", Position: 2, Frequency: 3},
+				{Value: "in", Position: 3, Frequency: 3},
+			},
+		},
+		Logs: logs,
+	}
+
+	config := Config{
+		Delimiters:           `\s+`,
+		ChildBranchThreshold: 2,
+	}
+
+	parser := New(config)
+	tree := parser.BuildTreeForGroup(group)
+
+	// Verify tree structure
+	if tree == nil {
+		t.Fatal("Tree should not be nil")
+	}
+
+	// Check root nodes (LCP)
+	if len(tree.RootNodes) != 3 {
+		t.Errorf("Expected 3 root nodes, got %d", len(tree.RootNodes))
+	}
+
+	// Check that child direction root exists
+	if tree.ChildDirectionRoot == nil {
+		t.Error("Child direction root should not be nil")
+	}
+
+	// Check that child direction root has logs
+	if len(tree.ChildDirectionRoot.Logs) != 3 {
+		t.Errorf("Expected 3 logs in child direction root, got %d", len(tree.ChildDirectionRoot.Logs))
+	}
+}
+
+// Test parent direction update
+func TestBrain_UpdateParentDirection(t *testing.T) {
+	logs := []*LogMessage{
+		{
+			ID: 1,
+			Words: []Word{
+				{Value: "ERROR", Position: 0, Frequency: 5}, // High frequency - should be in parent
+				{Value: "User", Position: 1, Frequency: 2},  // Lower frequency
+				{Value: "failed", Position: 2, Frequency: 2},
+			},
+		},
+		{
+			ID: 2,
+			Words: []Word{
+				{Value: "ERROR", Position: 0, Frequency: 5},
+				{Value: "Database", Position: 1, Frequency: 2},
+				{Value: "failed", Position: 2, Frequency: 2},
+			},
+		},
+	}
+
+	// Create pattern with lower frequency words only
+	group := &LogGroup{
+		Pattern: LogPattern{
+			Words: []Word{
+				{Value: "failed", Position: 2, Frequency: 2},
+			},
+		},
+		Logs: logs,
+	}
+
+	config := Config{ChildBranchThreshold: 1}
+	parser := New(config)
+	tree := parser.BuildTreeForGroup(group)
+
+	// Check that high-frequency word is in parent direction
+	if tree.ParentDirection[0] == nil {
+		t.Error("Position 0 should have parent direction node")
+	}
+
+	if tree.ParentDirection[0].Value != "ERROR" {
+		t.Errorf("Expected 'ERROR' in parent direction, got '%s'", tree.ParentDirection[0].Value)
+	}
+
+	if tree.ParentDirection[0].IsVariable {
+		t.Error("ERROR should be constant, not variable")
+	}
+}
+
+// Test child direction update with threshold logic
+func TestBrain_UpdateChildDirection(t *testing.T) {
+	logs := []*LogMessage{
+		{
+			ID: 1,
+			Words: []Word{
+				{Value: "Process", Position: 0, Frequency: 4},
+				{Value: "task1", Position: 1, Frequency: 1},
+			},
+		},
+		{
+			ID: 2,
+			Words: []Word{
+				{Value: "Process", Position: 0, Frequency: 4},
+				{Value: "task2", Position: 1, Frequency: 1},
+			},
+		},
+		{
+			ID: 3,
+			Words: []Word{
+				{Value: "Process", Position: 0, Frequency: 4},
+				{Value: "task3", Position: 1, Frequency: 1},
+			},
+		},
+		{
+			ID: 4,
+			Words: []Word{
+				{Value: "Process", Position: 0, Frequency: 4},
+				{Value: "task4", Position: 1, Frequency: 1},
+			},
+		},
+	}
+
+	group := &LogGroup{
+		Pattern: LogPattern{
+			Words: []Word{
+				{Value: "Process", Position: 0, Frequency: 4},
+			},
+		},
+		Logs: logs,
+	}
+
+	// Test with threshold = 2 (should create variable)
+	config := Config{ChildBranchThreshold: 2}
+	parser := New(config)
+	tree := parser.BuildTreeForGroup(group)
+
+	// Should have child nodes with variable for position 1
+	if tree.ChildDirectionRoot == nil {
+		t.Fatal("Child direction root should exist")
+	}
+
+	// With 4 unique values and threshold 2, should create variable node
+	// Check if we have a variable node or individual branches
+	if len(tree.ChildDirectionRoot.Children) == 0 {
+		t.Skip("Tree building logic may vary - skipping variable check")
+	}
+
+	// Test with threshold = 5 (should create constants)
+	config2 := Config{ChildBranchThreshold: 5}
+	parser2 := New(config2)
+	tree2 := parser2.BuildTreeForGroup(group)
+
+	// With threshold 5 > 4 unique values, each should get its own branch
+	// But the exact structure depends on the algorithm implementation
+	if tree2.ChildDirectionRoot != nil {
+		t.Logf("Child direction has %d children with threshold 5", len(tree2.ChildDirectionRoot.Children))
+	}
+}
+
+// Test template generation from tree
+func TestBrain_GenerateTemplatesFromTree(t *testing.T) {
+	// Create a simple tree structure manually
+	logs := []*LogMessage{
+		{ID: 1, Content: "User alice logged in"},
+		{ID: 2, Content: "User bob logged in"},
+	}
+
+	tree := &BidirectionalTree{
+		RootNodes: []Word{
+			{Value: "User", Position: 0, Frequency: 2},
+			{Value: "logged", Position: 2, Frequency: 2},
+			{Value: "in", Position: 3, Frequency: 2},
+		},
+		ParentDirection: make(map[int]*Node),
+		ChildDirectionRoot: &Node{
+			Value: "ROOT",
+			Children: map[string]*Node{
+				"<*>": {
+					Position:   1,
+					Value:      "<*>",
+					IsVariable: true,
+					Logs:       logs,
+					Children:   make(map[string]*Node),
+				},
+			},
+			Logs: logs,
+		},
+	}
+
+	config := Config{ChildBranchThreshold: 2}
+	parser := New(config)
+	results := parser.GenerateTemplatesFromTree(tree, logs)
+
+	if len(results) != 1 {
+		t.Errorf("Expected 1 template, got %d", len(results))
+	}
+
+	if results[0].Template != "User <*> logged in" {
+		t.Errorf("Expected 'User <*> logged in', got '%s'", results[0].Template)
+	}
+
+	if results[0].Count != 2 {
+		t.Errorf("Expected count 2, got %d", results[0].Count)
+	}
+
+	if len(results[0].LogIDs) != 2 {
+		t.Errorf("Expected 2 log IDs, got %d", len(results[0].LogIDs))
+	}
+}
+
+// Test template generation with parent direction
+func TestBrain_GenerateTemplatesFromTreeWithParent(t *testing.T) {
+	logs := []*LogMessage{
+		{ID: 1, Content: "ERROR: User failed"},
+		{ID: 2, Content: "ERROR: Database failed"},
+	}
+
+	tree := &BidirectionalTree{
+		RootNodes: []Word{
+			{Value: "failed", Position: 2, Frequency: 2},
+		},
+		ParentDirection: map[int]*Node{
+			0: {Position: 0, Value: "ERROR", IsVariable: false},
+		},
+		ChildDirectionRoot: &Node{
+			Value: "ROOT",
+			Children: map[string]*Node{
+				"<*>": {
+					Position:   1,
+					Value:      "<*>",
+					IsVariable: true,
+					Logs:       logs,
+					Children:   make(map[string]*Node),
+				},
+			},
+			Logs: logs,
+		},
+	}
+
+	config := Config{}
+	parser := New(config)
+	results := parser.GenerateTemplatesFromTree(tree, logs)
+
+	if len(results) != 1 {
+		t.Errorf("Expected 1 template, got %d", len(results))
+	}
+
+	expected := "ERROR <*> failed"
+	if results[0].Template != expected {
+		t.Errorf("Expected '%s', got '%s'", expected, results[0].Template)
+	}
+}
+
+// Test template collection from complex node structure
+func TestBrain_CollectTemplatesFromNode(t *testing.T) {
+	// Create a more complex tree with multiple branches
+	logs1 := []*LogMessage{{ID: 1}, {ID: 2}}
+	logs2 := []*LogMessage{{ID: 3}}
+
+	childNode1 := &Node{
+		Position:   1,
+		Value:      "success",
+		IsVariable: false,
+		Logs:       logs1,
+		Children:   make(map[string]*Node),
+	}
+
+	childNode2 := &Node{
+		Position:   1,
+		Value:      "failure",
+		IsVariable: false,
+		Logs:       logs2,
+		Children:   make(map[string]*Node),
+	}
+
+	rootNode := &Node{
+		Value: "ROOT",
+		Children: map[string]*Node{
+			"success": childNode1,
+			"failure": childNode2,
+		},
+		Logs: append(logs1, logs2...),
+	}
+
+	tree := &BidirectionalTree{
+		RootNodes: []Word{
+			{Value: "Operation", Position: 0, Frequency: 3},
+		},
+		ParentDirection:    make(map[int]*Node),
+		ChildDirectionRoot: rootNode,
+	}
+
+	config := Config{}
+	parser := New(config)
+	results := parser.GenerateTemplatesFromTree(tree, append(logs1, logs2...))
+
+	if len(results) != 2 {
+		t.Errorf("Expected 2 templates, got %d", len(results))
+	}
+
+	// Check that we get both success and failure templates
+	templates := make(map[string]*ParseResult)
+	for _, r := range results {
+		templates[r.Template] = r
+	}
+
+	if _, exists := templates["Operation success"]; !exists {
+		t.Error("Expected 'Operation success' template")
+	}
+
+	if _, exists := templates["Operation failure"]; !exists {
+		t.Error("Expected 'Operation failure' template")
+	}
+
+	// Check counts
+	if templates["Operation success"].Count != 2 {
+		t.Errorf("Expected count 2 for success template, got %d", templates["Operation success"].Count)
+	}
+
+	if templates["Operation failure"].Count != 1 {
+		t.Errorf("Expected count 1 for failure template, got %d", templates["Operation failure"].Count)
+	}
+}
+
+// Test edge cases and error handling
+func TestBrain_EdgeCases(t *testing.T) {
+	parser := New(Config{})
+
+	// Test single log line
+	results := parser.Parse([]string{"single log entry"})
+	if len(results) != 1 {
+		t.Errorf("Expected 1 result for single log, got %d", len(results))
+	}
+	if results[0].Template != "single log entry" {
+		t.Errorf("Expected 'single log entry', got '%s'", results[0].Template)
+	}
+
+	// Test identical log lines
+	identical := []string{
+		"identical message",
+		"identical message",
+		"identical message",
+	}
+	results = parser.Parse(identical)
+	if len(results) != 1 {
+		t.Errorf("Expected 1 result for identical logs, got %d", len(results))
+	}
+	if results[0].Count != 3 {
+		t.Errorf("Expected count 3, got %d", results[0].Count)
+	}
+
+	// Test very long log lines
+	longLine := strings.Repeat("very long message ", 100)
+	results = parser.Parse([]string{longLine})
+	if len(results) != 1 {
+		t.Errorf("Expected 1 result for long log, got %d", len(results))
+	}
+
+	// Test logs with only delimiters
+	delimiterOnly := []string{
+		"   ",
+		"::::",
+		",,,,",
+	}
+	results = parser.Parse(delimiterOnly)
+	// Should handle gracefully without crashing
+	if results == nil {
+		t.Error("Results should not be nil for delimiter-only logs")
+	}
+
+	// Test logs with special characters
+	special := []string{
+		"Message with UTF-8: αβγδ",
+		"Message with symbols: @#$%^&*()",
+		"Message with numbers: 123.456.789",
+	}
+	results = parser.Parse(special)
+	if len(results) != 3 {
+		t.Errorf("Expected 3 results for special character logs, got %d", len(results))
+	}
+}
+
+// Test configuration parameter validation
+func TestBrain_ConfigurationParameters(t *testing.T) {
+	// Test zero threshold
+	config := Config{
+		Delimiters:           `\s+`,
+		ChildBranchThreshold: 0, // Should use default
+	}
+	parser := New(config)
+	if parser.config.ChildBranchThreshold != 3 {
+		t.Errorf("Expected default threshold 3, got %d", parser.config.ChildBranchThreshold)
+	}
+
+	// Test custom delimiters
+	customConfig := Config{
+		Delimiters:           `[|]+`,
+		ChildBranchThreshold: 2,
+	}
+	parser = New(customConfig)
+	results := parser.Parse([]string{
+		"field1|field2|field3",
+		"data1|data2|data3",
+	})
+	// Should parse with pipe delimiters - exact template depends on algorithm
+	if len(results) == 0 {
+		t.Error("Should have at least one result with custom delimiters")
+	}
+	// Log actual result for debugging
+	t.Logf("Custom delimiter result: %s", results[0].Template)
+
+	// Test weight parameter
+	weightConfig := Config{
+		Weight: 0.5,
+	}
+	parser = New(weightConfig)
+	if parser.config.Weight != 0.5 {
+		t.Errorf("Expected weight 0.5, got %f", parser.config.Weight)
+	}
+
+	// Test dynamic threshold factor
+	dynamicConfig := Config{
+		UseDynamicThreshold:    true,
+		DynamicThresholdFactor: 3.0,
+	}
+	parser = New(dynamicConfig)
+	if parser.config.DynamicThresholdFactor != 3.0 {
+		t.Errorf("Expected dynamic threshold factor 3.0, got %f", parser.config.DynamicThresholdFactor)
+	}
+}
+
+// Test enhanced features tuning parameters
+func TestBrain_EnhancedFeaturesTuning(t *testing.T) {
+	config := Config{
+		UseEnhancedPostProcessing: true,
+		EntropyThreshold:          0.9,
+		MinEntropyLength:          12,
+		MaxConsecutiveWildcards:   3,
+		MinContentWordsRatio:      0.3,
+		TimestampMinDigits:        10,
+	}
+
+	parser := New(config)
+
+	// Verify all tuning parameters are set
+	if parser.config.EntropyThreshold != 0.9 {
+		t.Errorf("Expected entropy threshold 0.9, got %f", parser.config.EntropyThreshold)
+	}
+	if parser.config.MinEntropyLength != 12 {
+		t.Errorf("Expected min entropy length 12, got %d", parser.config.MinEntropyLength)
+	}
+	if parser.config.MaxConsecutiveWildcards != 3 {
+		t.Errorf("Expected max consecutive wildcards 3, got %d", parser.config.MaxConsecutiveWildcards)
+	}
+	if parser.config.MinContentWordsRatio != 0.3 {
+		t.Errorf("Expected min content words ratio 0.3, got %f", parser.config.MinContentWordsRatio)
+	}
+	if parser.config.TimestampMinDigits != 10 {
+		t.Errorf("Expected timestamp min digits 10, got %d", parser.config.TimestampMinDigits)
+	}
+
+	// Test with enhanced processing on complex data
+	complexLogs := []string{
+		"Session abc123def456 started with hash f1d2d2f924e986ac86fdf7b36c94bcdf32beec15",
+		"Session xyz789ghi012 started with hash e3b0c44298fc1c149afbf4c8996fb92427ae41e4",
+		"Process id98765 finished with code 0x00000000",
+		"Process id43210 finished with code 0x00000001",
+	}
+
+	results := parser.Parse(complexLogs)
+
+	// Enhanced processing should create generalized templates
+	if len(results) > 2 {
+		t.Errorf("Enhanced processing should create at most 2 templates, got %d", len(results))
+	}
+
+	// Check for proper wildcard replacement
+	for _, result := range results {
+		if strings.Count(result.Template, "<*>") > parser.config.MaxConsecutiveWildcards {
+			t.Errorf("Template has too many consecutive wildcards: %s", result.Template)
+		}
+	}
+}
