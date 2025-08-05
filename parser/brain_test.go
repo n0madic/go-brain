@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"unique"
 )
 
 func TestBrain_EndToEnd_Correctness(t *testing.T) {
@@ -157,7 +158,6 @@ func TestBrain_EnhancedVariablePatterns(t *testing.T) {
 	resultsMap := make(map[string]bool)
 	for _, r := range results {
 		resultsMap[r.Template] = true
-		t.Logf("Generated pattern: %s", r.Template) // Debug output
 	}
 
 	for _, pattern := range expectedPatterns {
@@ -304,28 +304,28 @@ func TestBrain_BuildTreeForGroup(t *testing.T) {
 		{
 			ID: 1,
 			Words: []Word{
-				{Value: "User", Position: 0, Frequency: 3},
-				{Value: "alice", Position: 1, Frequency: 1},
-				{Value: "logged", Position: 2, Frequency: 3},
-				{Value: "in", Position: 3, Frequency: 3},
+				{Value: unique.Make("User"), Position: 0, Frequency: 3},
+				{Value: unique.Make("alice"), Position: 1, Frequency: 1},
+				{Value: unique.Make("logged"), Position: 2, Frequency: 3},
+				{Value: unique.Make("in"), Position: 3, Frequency: 3},
 			},
 		},
 		{
 			ID: 2,
 			Words: []Word{
-				{Value: "User", Position: 0, Frequency: 3},
-				{Value: "bob", Position: 1, Frequency: 1},
-				{Value: "logged", Position: 2, Frequency: 3},
-				{Value: "in", Position: 3, Frequency: 3},
+				{Value: unique.Make("User"), Position: 0, Frequency: 3},
+				{Value: unique.Make("bob"), Position: 1, Frequency: 1},
+				{Value: unique.Make("logged"), Position: 2, Frequency: 3},
+				{Value: unique.Make("in"), Position: 3, Frequency: 3},
 			},
 		},
 		{
 			ID: 3,
 			Words: []Word{
-				{Value: "User", Position: 0, Frequency: 3},
-				{Value: "charlie", Position: 1, Frequency: 1},
-				{Value: "logged", Position: 2, Frequency: 3},
-				{Value: "in", Position: 3, Frequency: 3},
+				{Value: unique.Make("User"), Position: 0, Frequency: 3},
+				{Value: unique.Make("charlie"), Position: 1, Frequency: 1},
+				{Value: unique.Make("logged"), Position: 2, Frequency: 3},
+				{Value: unique.Make("in"), Position: 3, Frequency: 3},
 			},
 		},
 	}
@@ -334,9 +334,9 @@ func TestBrain_BuildTreeForGroup(t *testing.T) {
 	group := &LogGroup{
 		Pattern: LogPattern{
 			Words: []Word{
-				{Value: "User", Position: 0, Frequency: 3},
-				{Value: "logged", Position: 2, Frequency: 3},
-				{Value: "in", Position: 3, Frequency: 3},
+				{Value: unique.Make("User"), Position: 0, Frequency: 3},
+				{Value: unique.Make("logged"), Position: 2, Frequency: 3},
+				{Value: unique.Make("in"), Position: 3, Frequency: 3},
 			},
 		},
 		Logs: logs,
@@ -377,17 +377,17 @@ func TestBrain_UpdateParentDirection(t *testing.T) {
 		{
 			ID: 1,
 			Words: []Word{
-				{Value: "ERROR", Position: 0, Frequency: 5}, // High frequency - should be in parent
-				{Value: "User", Position: 1, Frequency: 2},  // Lower frequency
-				{Value: "failed", Position: 2, Frequency: 2},
+				{Value: unique.Make("ERROR"), Position: 0, Frequency: 5}, // High frequency - should be in parent
+				{Value: unique.Make("User"), Position: 1, Frequency: 2},  // Lower frequency
+				{Value: unique.Make("failed"), Position: 2, Frequency: 2},
 			},
 		},
 		{
 			ID: 2,
 			Words: []Word{
-				{Value: "ERROR", Position: 0, Frequency: 5},
-				{Value: "Database", Position: 1, Frequency: 2},
-				{Value: "failed", Position: 2, Frequency: 2},
+				{Value: unique.Make("ERROR"), Position: 0, Frequency: 5},
+				{Value: unique.Make("Database"), Position: 1, Frequency: 2},
+				{Value: unique.Make("failed"), Position: 2, Frequency: 2},
 			},
 		},
 	}
@@ -396,7 +396,7 @@ func TestBrain_UpdateParentDirection(t *testing.T) {
 	group := &LogGroup{
 		Pattern: LogPattern{
 			Words: []Word{
-				{Value: "failed", Position: 2, Frequency: 2},
+				{Value: unique.Make("failed"), Position: 2, Frequency: 2},
 			},
 		},
 		Logs: logs,
@@ -411,8 +411,8 @@ func TestBrain_UpdateParentDirection(t *testing.T) {
 		t.Error("Position 0 should have parent direction node")
 	}
 
-	if tree.ParentDirection[0].Value != "ERROR" {
-		t.Errorf("Expected 'ERROR' in parent direction, got '%s'", tree.ParentDirection[0].Value)
+	if tree.ParentDirection[0].Value.Value() != "ERROR" {
+		t.Errorf("Expected 'ERROR' in parent direction, got '%s'", tree.ParentDirection[0].Value.Value())
 	}
 
 	if tree.ParentDirection[0].IsVariable {
@@ -426,29 +426,29 @@ func TestBrain_UpdateChildDirection(t *testing.T) {
 		{
 			ID: 1,
 			Words: []Word{
-				{Value: "Process", Position: 0, Frequency: 4},
-				{Value: "task1", Position: 1, Frequency: 1},
+				{Value: unique.Make("Process"), Position: 0, Frequency: 4},
+				{Value: unique.Make("task1"), Position: 1, Frequency: 1},
 			},
 		},
 		{
 			ID: 2,
 			Words: []Word{
-				{Value: "Process", Position: 0, Frequency: 4},
-				{Value: "task2", Position: 1, Frequency: 1},
+				{Value: unique.Make("Process"), Position: 0, Frequency: 4},
+				{Value: unique.Make("task2"), Position: 1, Frequency: 1},
 			},
 		},
 		{
 			ID: 3,
 			Words: []Word{
-				{Value: "Process", Position: 0, Frequency: 4},
-				{Value: "task3", Position: 1, Frequency: 1},
+				{Value: unique.Make("Process"), Position: 0, Frequency: 4},
+				{Value: unique.Make("task3"), Position: 1, Frequency: 1},
 			},
 		},
 		{
 			ID: 4,
 			Words: []Word{
-				{Value: "Process", Position: 0, Frequency: 4},
-				{Value: "task4", Position: 1, Frequency: 1},
+				{Value: unique.Make("Process"), Position: 0, Frequency: 4},
+				{Value: unique.Make("task4"), Position: 1, Frequency: 1},
 			},
 		},
 	}
@@ -456,7 +456,7 @@ func TestBrain_UpdateChildDirection(t *testing.T) {
 	group := &LogGroup{
 		Pattern: LogPattern{
 			Words: []Word{
-				{Value: "Process", Position: 0, Frequency: 4},
+				{Value: unique.Make("Process"), Position: 0, Frequency: 4},
 			},
 		},
 		Logs: logs,
@@ -494,23 +494,23 @@ func TestBrain_UpdateChildDirection(t *testing.T) {
 func TestBrain_GenerateTemplatesFromTree(t *testing.T) {
 	// Create a simple tree structure manually
 	logs := []*LogMessage{
-		{ID: 1, Content: "User alice logged in"},
-		{ID: 2, Content: "User bob logged in"},
+		{ID: 1, Content: unique.Make("User alice logged in")},
+		{ID: 2, Content: unique.Make("User bob logged in")},
 	}
 
 	tree := &BidirectionalTree{
 		RootNodes: []Word{
-			{Value: "User", Position: 0, Frequency: 2},
-			{Value: "logged", Position: 2, Frequency: 2},
-			{Value: "in", Position: 3, Frequency: 2},
+			{Value: unique.Make("User"), Position: 0, Frequency: 2},
+			{Value: unique.Make("logged"), Position: 2, Frequency: 2},
+			{Value: unique.Make("in"), Position: 3, Frequency: 2},
 		},
 		ParentDirection: make(map[int]*Node),
 		ChildDirectionRoot: &Node{
-			Value: "ROOT",
+			Value: unique.Make("ROOT"),
 			Children: map[string]*Node{
 				"<*>": {
 					Position:   1,
-					Value:      "<*>",
+					Value:      unique.Make("<*>"),
 					IsVariable: true,
 					Logs:       logs,
 					Children:   make(map[string]*Node),
@@ -544,23 +544,23 @@ func TestBrain_GenerateTemplatesFromTree(t *testing.T) {
 // Test template generation with parent direction
 func TestBrain_GenerateTemplatesFromTreeWithParent(t *testing.T) {
 	logs := []*LogMessage{
-		{ID: 1, Content: "ERROR: User failed"},
-		{ID: 2, Content: "ERROR: Database failed"},
+		{ID: 1, Content: unique.Make("ERROR: User failed")},
+		{ID: 2, Content: unique.Make("ERROR: Database failed")},
 	}
 
 	tree := &BidirectionalTree{
 		RootNodes: []Word{
-			{Value: "failed", Position: 2, Frequency: 2},
+			{Value: unique.Make("failed"), Position: 2, Frequency: 2},
 		},
 		ParentDirection: map[int]*Node{
-			0: {Position: 0, Value: "ERROR", IsVariable: false},
+			0: {Position: 0, Value: unique.Make("ERROR"), IsVariable: false},
 		},
 		ChildDirectionRoot: &Node{
-			Value: "ROOT",
+			Value: unique.Make("ROOT"),
 			Children: map[string]*Node{
 				"<*>": {
 					Position:   1,
-					Value:      "<*>",
+					Value:      unique.Make("<*>"),
 					IsVariable: true,
 					Logs:       logs,
 					Children:   make(map[string]*Node),
@@ -592,7 +592,7 @@ func TestBrain_CollectTemplatesFromNode(t *testing.T) {
 
 	childNode1 := &Node{
 		Position:   1,
-		Value:      "success",
+		Value:      unique.Make("success"),
 		IsVariable: false,
 		Logs:       logs1,
 		Children:   make(map[string]*Node),
@@ -600,14 +600,14 @@ func TestBrain_CollectTemplatesFromNode(t *testing.T) {
 
 	childNode2 := &Node{
 		Position:   1,
-		Value:      "failure",
+		Value:      unique.Make("failure"),
 		IsVariable: false,
 		Logs:       logs2,
 		Children:   make(map[string]*Node),
 	}
 
 	rootNode := &Node{
-		Value: "ROOT",
+		Value: unique.Make("ROOT"),
 		Children: map[string]*Node{
 			"success": childNode1,
 			"failure": childNode2,
@@ -617,7 +617,7 @@ func TestBrain_CollectTemplatesFromNode(t *testing.T) {
 
 	tree := &BidirectionalTree{
 		RootNodes: []Word{
-			{Value: "Operation", Position: 0, Frequency: 3},
+			{Value: unique.Make("Operation"), Position: 0, Frequency: 3},
 		},
 		ParentDirection:    make(map[int]*Node),
 		ChildDirectionRoot: rootNode,
@@ -739,8 +739,6 @@ func TestBrain_ConfigurationParameters(t *testing.T) {
 	if len(results) == 0 {
 		t.Error("Should have at least one result with custom delimiters")
 	}
-	// Log actual result for debugging
-	t.Logf("Custom delimiter result: %s", results[0].Template)
 
 	// Test weight parameter
 	weightConfig := Config{

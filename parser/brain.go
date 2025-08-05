@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"sync"
+	"unique"
 )
 
 // BrainParser - main parser structure.
@@ -174,6 +175,9 @@ func (p *BrainParser) Parse(logLines []string) []*ParseResult {
 			// bidirectional tree traversal, iterative parent updates, and proper log tracking
 			templates := p.GenerateTemplatesFromTree(tree, processedLogs)
 			allTemplates = append(allTemplates, templates...)
+
+			// Release tree resources back to pools after processing
+			ReleaseBidirectionalTree(tree)
 		}
 	}
 
@@ -187,10 +191,30 @@ func (p *BrainParser) aggregateResults(results []*ParseResult) []*ParseResult {
 	for _, res := range results {
 		if existing, ok := aggMap[res.Template]; ok {
 			existing.Count += res.Count
+			// Use pooled int slice for better memory management
+			if cap(existing.LogIDs) < len(existing.LogIDs)+len(res.LogIDs) {
+				newSlice := GetIntSlice()
+				// Ensure capacity
+				for cap(newSlice) < len(existing.LogIDs)+len(res.LogIDs) {
+					PutIntSlice(newSlice)
+					newSlice = make([]int, 0, len(existing.LogIDs)+len(res.LogIDs))
+				}
+				newSlice = append(newSlice, existing.LogIDs...)
+				existing.LogIDs = newSlice
+			}
 			existing.LogIDs = append(existing.LogIDs, res.LogIDs...)
 		} else {
 			// Copy to avoid modifying the original slice
 			newRes := *res
+			// Use pooled int slice for LogIDs
+			logIDsCopy := GetIntSlice()
+			// Ensure capacity
+			if cap(logIDsCopy) < len(res.LogIDs) {
+				PutIntSlice(logIDsCopy)
+				logIDsCopy = make([]int, 0, len(res.LogIDs))
+			}
+			logIDsCopy = append(logIDsCopy, res.LogIDs...)
+			newRes.LogIDs = logIDsCopy
 			aggMap[res.Template] = &newRes
 		}
 	}
@@ -297,6 +321,9 @@ func (p *BrainParser) processGroupsParallel(groups []*LogGroup, allLogs []*LogMe
 				tree := p.BuildTreeForGroup(work.group)
 				templates := p.GenerateTemplatesFromTree(tree, allLogs)
 				resultsChan <- templates
+
+				// Release tree resources back to pools after processing
+				ReleaseBidirectionalTree(tree)
 			}
 		}()
 	}
@@ -341,10 +368,16 @@ func (p *BrainParser) getOptimalWorkerCount(groups []*LogGroup) int {
 
 // BuildTreeForGroup builds a bidirectional tree for one log group.
 func (p *BrainParser) BuildTreeForGroup(group *LogGroup) *BidirectionalTree {
+	// Use pooled Node for child direction root
+	childRoot := GetNode()
+	childRoot.Value = unique.Make("ROOT")
+	childRoot.Children = GetStringMap() // Use pooled map
+	childRoot.Logs = group.Logs
+
 	tree := &BidirectionalTree{
 		RootNodes:          group.Pattern.Words,
 		ParentDirection:    make(map[int]*Node),
-		ChildDirectionRoot: &Node{Value: "ROOT", Children: make(map[string]*Node), Logs: group.Logs},
+		ChildDirectionRoot: childRoot,
 		LogGroups:          make(map[string][]*LogMessage),
 		RootPattern:        group.Pattern,
 	}
@@ -397,7 +430,7 @@ func (p *BrainParser) updateParentDirection(tree *BidirectionalTree, logs []*Log
 		var constantWord string
 		for _, log := range logs {
 			if pos < len(log.Words) {
-				word := log.Words[pos].Value
+				word := log.Words[pos].Value.Value()
 				uniqueWords[word] = true
 				if constantWord == "" {
 					constantWord = word
@@ -405,15 +438,14 @@ func (p *BrainParser) updateParentDirection(tree *BidirectionalTree, logs []*Log
 			}
 		}
 
-		node := &Node{
-			IsVariable: len(uniqueWords) > 1,
-			Position:   pos,
-			Logs:       logs,
-		}
+		node := GetNode()
+		node.IsVariable = len(uniqueWords) > 1
+		node.Position = pos
+		node.Logs = logs
 
 		// If word is constant (only one unique), save its value
 		if !node.IsVariable && constantWord != "" {
-			node.Value = constantWord
+			node.Value = unique.Make(constantWord)
 		}
 
 		tree.ParentDirection[pos] = node
@@ -440,7 +472,7 @@ func (p *BrainParser) updateChildDirection(tree *BidirectionalTree, rootNode *No
 	wordsInColumn := make(map[string][]*LogMessage)
 	for _, log := range currentLogs {
 		if posToProcess < len(log.Words) {
-			word := log.Words[posToProcess].Value
+			word := log.Words[posToProcess].Value.Value()
 			wordsInColumn[word] = append(wordsInColumn[word], log)
 		}
 	}
@@ -451,24 +483,23 @@ func (p *BrainParser) updateChildDirection(tree *BidirectionalTree, rootNode *No
 
 	// If number of branches > threshold, consider all as variables
 	if uniqueWordsCount > threshold {
-		rootNode.Children["<*>"] = &Node{
-			IsVariable: true,
-			Children:   make(map[string]*Node),
-			Position:   posToProcess,
-			Logs:       currentLogs,
-		}
+		variableNode := GetNode()
+		variableNode.IsVariable = true
+		variableNode.Children = GetStringMap()
+		variableNode.Position = posToProcess
+		variableNode.Logs = currentLogs
+		rootNode.Children["<*>"] = variableNode
 		// Continue recursion for the same group, but with remaining columns
 		p.updateChildDirection(tree, rootNode.Children["<*>"], currentLogs, remainingCols)
 	} else {
 		// Otherwise create constant branches and split the group
 		for word, subGroupLogs := range wordsInColumn {
-			newNode := &Node{
-				Value:      word,
-				IsVariable: false,
-				Children:   make(map[string]*Node),
-				Position:   posToProcess,
-				Logs:       subGroupLogs,
-			}
+			newNode := GetNode()
+			newNode.Value = unique.Make(word)
+			newNode.IsVariable = false
+			newNode.Children = GetStringMap()
+			newNode.Position = posToProcess
+			newNode.Logs = subGroupLogs
 			rootNode.Children[word] = newNode
 
 			// CRITICAL IMPROVEMENT: Iteratively update parent nodes for the new subgroup
@@ -490,7 +521,7 @@ func (p *BrainParser) iterativelyUpdateParentNodes(tree *BidirectionalTree, node
 
 		for _, log := range subGroupLogs {
 			if parentPos < len(log.Words) {
-				word := log.Words[parentPos].Value
+				word := log.Words[parentPos].Value.Value()
 				uniqueWords[word] = true
 				if constantWord == "" {
 					constantWord = word
@@ -499,20 +530,19 @@ func (p *BrainParser) iterativelyUpdateParentNodes(tree *BidirectionalTree, node
 		}
 
 		// Create/update node specific to this subgroup
-		parentNode := &Node{
-			IsVariable: len(uniqueWords) > 1,
-			Position:   parentPos,
-			Logs:       subGroupLogs,
-		}
+		parentNode := GetNode()
+		parentNode.IsVariable = len(uniqueWords) > 1
+		parentNode.Position = parentPos
+		parentNode.Logs = subGroupLogs
 
 		// If word became constant in this subgroup, save its value
 		if !parentNode.IsVariable && constantWord != "" {
-			parentNode.Value = constantWord
+			parentNode.Value = unique.Make(constantWord)
 		}
 
 		// Store subgroup-specific parent information in the node
 		if node.ParentWords == nil {
-			node.ParentWords = make([]string, len(subGroupLogs[0].Words))
+			node.ParentWords = make([]unique.Handle[string], len(subGroupLogs[0].Words))
 		}
 
 		// Store the result for this position
@@ -528,16 +558,16 @@ func (p *BrainParser) iterativelyUpdateParentNodes(tree *BidirectionalTree, node
 				}
 				// Extend slice if needed
 				for len(node.ParentWords) <= maxPos {
-					node.ParentWords = append(node.ParentWords, "")
+					node.ParentWords = append(node.ParentWords, unique.Make(""))
 				}
-				node.ParentWords[parentPos] = "<*>"
+				node.ParentWords[parentPos] = unique.Make("<*>")
 			}
 		} else if constantWord != "" {
 			// Ensure we have enough capacity
 			for len(node.ParentWords) <= parentPos {
-				node.ParentWords = append(node.ParentWords, "")
+				node.ParentWords = append(node.ParentWords, unique.Make(""))
 			}
-			node.ParentWords[parentPos] = constantWord
+			node.ParentWords[parentPos] = unique.Make(constantWord)
 		}
 	}
 }
@@ -564,7 +594,7 @@ func countUniqueWordsInColumn(logs []*LogMessage, position int) int {
 	unique := make(map[string]bool)
 	for _, log := range logs {
 		if position < len(log.Words) {
-			unique[log.Words[position].Value] = true
+			unique[log.Words[position].Value.Value()] = true
 		}
 	}
 	return len(unique)

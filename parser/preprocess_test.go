@@ -3,6 +3,7 @@ package parser
 import (
 	"reflect"
 	"testing"
+	"unique"
 )
 
 func TestPreprocessor_PreprocessLogs(t *testing.T) {
@@ -20,10 +21,10 @@ func TestPreprocessor_PreprocessLogs(t *testing.T) {
 
 	// Check first log
 	expectedWords1 := []Word{
-		{Value: "Log", Position: 0, Frequency: 2},
-		{Value: "<*>", Position: 1, Frequency: 1},
-		{Value: "value1", Position: 2, Frequency: 2},
-		{Value: "value2", Position: 3, Frequency: 1},
+		{Value: unique.Make("Log"), Position: 0, Frequency: 2},
+		{Value: unique.Make("<*>"), Position: 1, Frequency: 1},
+		{Value: unique.Make("value1"), Position: 2, Frequency: 2},
+		{Value: unique.Make("value2"), Position: 3, Frequency: 1},
 	}
 	if !reflect.DeepEqual(processed[0].Words, expectedWords1) {
 		t.Errorf("Log 1 words mismatch.\nGot: %v\nWant: %v", processed[0].Words, expectedWords1)
@@ -31,10 +32,10 @@ func TestPreprocessor_PreprocessLogs(t *testing.T) {
 
 	// Check second log (note: "2" is detected as variable since it's 100% digits)
 	expectedWords2 := []Word{
-		{Value: "Log", Position: 0, Frequency: 2},
-		{Value: "<*>", Position: 1, Frequency: 1},
-		{Value: "value1", Position: 2, Frequency: 2},
-		{Value: "value3", Position: 3, Frequency: 1},
+		{Value: unique.Make("Log"), Position: 0, Frequency: 2},
+		{Value: unique.Make("<*>"), Position: 1, Frequency: 1},
+		{Value: unique.Make("value1"), Position: 2, Frequency: 2},
+		{Value: unique.Make("value3"), Position: 3, Frequency: 1},
 	}
 	if !reflect.DeepEqual(processed[1].Words, expectedWords2) {
 		t.Errorf("Log 2 words mismatch.\nGot: %v\nWant: %v", processed[1].Words, expectedWords2)
@@ -100,9 +101,9 @@ func TestPreprocessor_NumericVariableDetection(t *testing.T) {
 		}
 
 		for j, word := range log.Words {
-			if word.Value != expectedPatterns[i][j] {
+			if word.Value.Value() != expectedPatterns[i][j] {
 				t.Errorf("Log %d, word %d: expected %q, got %q",
-					i, j, expectedPatterns[i][j], word.Value)
+					i, j, expectedPatterns[i][j], word.Value.Value())
 			}
 		}
 	}
@@ -177,8 +178,8 @@ func TestPreprocessor_DateTimePatterns(t *testing.T) {
 				}
 
 				for j, word := range log.Words {
-					if word.Value != tc.expected[i][j] {
-						t.Errorf("Log %d, word %d: expected %q, got %q", i, j, tc.expected[i][j], word.Value)
+					if word.Value.Value() != tc.expected[i][j] {
+						t.Errorf("Log %d, word %d: expected %q, got %q", i, j, tc.expected[i][j], word.Value.Value())
 					}
 				}
 			}
@@ -299,7 +300,7 @@ func TestPreprocessor_CommonVariablePatterns(t *testing.T) {
 					t.Logf("Actual words: %v", func() []string {
 						var words []string
 						for _, w := range log.Words {
-							words = append(words, w.Value)
+							words = append(words, w.Value.Value())
 						}
 						return words
 					}())
@@ -307,8 +308,8 @@ func TestPreprocessor_CommonVariablePatterns(t *testing.T) {
 				}
 
 				for j, word := range log.Words {
-					if word.Value != tc.expected[i][j] {
-						t.Errorf("Log %d, word %d: expected %q, got %q", i, j, tc.expected[i][j], word.Value)
+					if word.Value.Value() != tc.expected[i][j] {
+						t.Errorf("Log %d, word %d: expected %q, got %q", i, j, tc.expected[i][j], word.Value.Value())
 					}
 				}
 			}
@@ -342,7 +343,7 @@ func TestPreprocessor_MixedPatterns(t *testing.T) {
 		t.Logf("Log %d tokenized to %d words: %v", i, len(log.Words), func() []string {
 			var words []string
 			for _, w := range log.Words {
-				words = append(words, w.Value)
+				words = append(words, w.Value.Value())
 			}
 			return words
 		}())
@@ -350,7 +351,7 @@ func TestPreprocessor_MixedPatterns(t *testing.T) {
 		// Just verify that email, IP, and UUID patterns were replaced with <*>
 		hasVariables := false
 		for _, word := range log.Words {
-			if word.Value == "<*>" {
+			if word.Value.Value() == "<*>" {
 				hasVariables = true
 				break
 			}

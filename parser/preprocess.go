@@ -3,6 +3,7 @@ package parser
 import (
 	"regexp"
 	"strings"
+	"unique"
 )
 
 // DateTime preprocessing constants
@@ -100,16 +101,31 @@ func (p *Preprocessor) PreprocessLogs(logLines []string) []*LogMessage {
 	// 3. Create LogMessage structures, applying filtering while preserving original frequencies
 	processedLogs := make([]*LogMessage, len(logLines))
 	for i, rawWords := range rawSplitLogs {
-		logMessage := &LogMessage{
-			ID:      i,
-			Content: logLines[i],
-			Words:   make([]Word, len(rawWords)),
+		// Use pooled LogMessage
+		logMessage := GetLogMessage()
+		logMessage.ID = i
+		logMessage.Content = unique.Make(logLines[i]) // Intern the content string
+
+		// Use pooled word slice if available, otherwise allocate
+		if logMessage.Words == nil || cap(logMessage.Words) < len(rawWords) {
+			if logMessage.Words != nil {
+				PutWordSlice(logMessage.Words) // Return previous slice to pool
+			}
+			logMessage.Words = GetWordSlice()
 		}
+
+		// Ensure sufficient capacity
+		if cap(logMessage.Words) < len(rawWords) {
+			logMessage.Words = make([]Word, len(rawWords))
+		} else {
+			logMessage.Words = logMessage.Words[:len(rawWords)]
+		}
+
 		for j, rawWord := range rawWords {
 			// Apply common variable filtering to the word value
 			filteredWord := p.filterCommonVariables(rawWord)
 			logMessage.Words[j] = Word{
-				Value:     filteredWord,
+				Value:     unique.Make(filteredWord), // Intern the word value
 				Position:  j,
 				Frequency: wordFrequencies[rawWord], // Use original word frequency
 			}

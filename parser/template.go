@@ -3,6 +3,7 @@ package parser
 import (
 	"math"
 	"strings"
+	"unique"
 )
 
 // GenerateTemplatesFromTree extracts templates from the ready tree.
@@ -14,15 +15,15 @@ func (p *BrainParser) GenerateTemplatesFromTree(tree *BidirectionalTree, allLogs
 	for pos, node := range tree.ParentDirection {
 		if node.IsVariable {
 			baseTemplate[pos] = "<*>"
-		} else {
+		} else if node.Value != (unique.Handle[string]{}) {
 			// Now we save the constant word in node.Value
-			baseTemplate[pos] = node.Value
+			baseTemplate[pos] = node.Value.Value()
 		}
 	}
 
 	// Fill with words from root (Longest Common Pattern)
 	for _, word := range tree.RootNodes {
-		baseTemplate[word.Position] = word.Value
+		baseTemplate[word.Position] = word.Value.Value()
 	}
 
 	// Recursively traverse child nodes and collect templates
@@ -53,16 +54,17 @@ func (p *BrainParser) collectTemplatesFromNode(node *Node, baseTemplate map[int]
 	if node.Position >= 0 {
 		if node.IsVariable {
 			pathTemplate[node.Position] = "<*>"
-		} else if node.Value != "" && node.Value != "ROOT" {
-			pathTemplate[node.Position] = node.Value
+		} else if node.Value != (unique.Handle[string]{}) && node.Value.Value() != "" && node.Value.Value() != "ROOT" {
+			pathTemplate[node.Position] = node.Value.Value()
 		}
 	}
 
 	// CRITICAL IMPROVEMENT: Add iteratively updated parent information
 	if node.ParentWords != nil {
 		for pos, word := range node.ParentWords {
-			if word != "" {
-				pathTemplate[pos] = word
+			// Check for zero-value handle before calling Value()
+			if word != (unique.Handle[string]{}) && word.Value() != "" {
+				pathTemplate[pos] = word.Value()
 			}
 		}
 	}
@@ -72,10 +74,15 @@ func (p *BrainParser) collectTemplatesFromNode(node *Node, baseTemplate map[int]
 		// Create final template by combining base template and path
 		finalTemplate := p.buildCompleteTemplate(baseTemplate, pathTemplate)
 
-		// Collect log IDs
-		logIDs := make([]int, len(node.Logs))
-		for i, log := range node.Logs {
-			logIDs[i] = log.ID
+		// Collect log IDs using pooled slice
+		logIDs := GetIntSlice()
+		// Ensure sufficient capacity
+		if cap(logIDs) < len(node.Logs) {
+			PutIntSlice(logIDs)
+			logIDs = make([]int, 0, len(node.Logs))
+		}
+		for _, log := range node.Logs {
+			logIDs = append(logIDs, log.ID)
 		}
 
 		*results = append(*results, &ParseResult{
@@ -477,7 +484,7 @@ func (p *BrainParser) reparseWithRelaxedSettings(badResults []*ParseResult, allL
 	// Convert LogMessage slice to string slice for reparsing
 	logLines := make([]string, len(logsToReparse))
 	for i, log := range logsToReparse {
-		logLines[i] = log.Content
+		logLines[i] = log.Content.Value()
 	}
 
 	var allGoodResults []*ParseResult

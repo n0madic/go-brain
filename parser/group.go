@@ -17,7 +17,7 @@ func CreateInitialGroups(logs []*LogMessage, config *Config) map[string]*LogGrou
 	finalGroups := make(map[string]*LogGroup)
 
 	// 2. For each group with the same length, group by Longest Common Pattern
-	for _, group := range logsByLength {
+	for length, group := range logsByLength {
 		logsByPattern := make(map[string][]*LogMessage)
 		patterns := make(map[string]LogPattern)
 
@@ -32,9 +32,28 @@ func CreateInitialGroups(logs []*LogMessage, config *Config) map[string]*LogGrou
 
 		// Form final groups
 		for key, logList := range logsByPattern {
-			finalGroups[key] = &LogGroup{
-				Pattern: patterns[key],
-				Logs:    logList,
+			// Check if this key already exists in finalGroups - THIS MIGHT BE THE BUG
+			if _, exists := finalGroups[key]; exists {
+				// Key collision! Two different length groups have the same LCP key
+				// This means we're overwriting the previous group
+				// We should NOT overwrite - we should combine or create unique keys
+
+				// For now, let's create a unique key by adding length info
+				sb := GetStringBuilder()
+				sb.WriteString(key)
+				sb.WriteString("-len:")
+				writeInt(sb, length)
+				uniqueKey := sb.String()
+				PutStringBuilder(sb)
+				finalGroups[uniqueKey] = &LogGroup{
+					Pattern: patterns[key],
+					Logs:    logList,
+				}
+			} else {
+				finalGroups[key] = &LogGroup{
+					Pattern: patterns[key],
+					Logs:    logList,
+				}
 			}
 		}
 	}
@@ -146,10 +165,10 @@ var (
 func hasVariablePatterns(words []Word) bool {
 	variableCount := 0
 	for _, word := range words {
-		if numericPattern.MatchString(word.Value) ||
-			ipPattern.MatchString(word.Value) ||
-			idPattern.MatchString(word.Value) ||
-			channelPattern.MatchString(word.Value) {
+		if numericPattern.MatchString(word.Value.Value()) ||
+			ipPattern.MatchString(word.Value.Value()) ||
+			idPattern.MatchString(word.Value.Value()) ||
+			channelPattern.MatchString(word.Value.Value()) {
 			variableCount++
 		}
 	}
@@ -183,7 +202,7 @@ func selectConstantCombinationFromTwoFrequency(combosByFreq map[int][]Word) Word
 func calculateTotalTokenLength(words []Word) int {
 	total := 0
 	for _, word := range words {
-		total += len(word.Value)
+		total += len(word.Value.Value())
 	}
 	return total
 }

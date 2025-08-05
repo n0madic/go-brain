@@ -2,6 +2,7 @@ package parser
 
 import (
 	"testing"
+	"unique"
 )
 
 func TestCreateInitialGroups(t *testing.T) {
@@ -9,27 +10,27 @@ func TestCreateInitialGroups(t *testing.T) {
 	logs := []*LogMessage{
 		{ // Group A
 			Words: []Word{
-				{Value: "A", Position: 0, Frequency: 2},
-				{Value: "common", Position: 1, Frequency: 2},
-				{Value: "var1", Position: 2, Frequency: 1},
+				{Value: unique.Make("A"), Position: 0, Frequency: 2},
+				{Value: unique.Make("common"), Position: 1, Frequency: 2},
+				{Value: unique.Make("var1"), Position: 2, Frequency: 1},
 			},
 		},
 		{ // Group A
 			Words: []Word{
-				{Value: "A", Position: 0, Frequency: 2},
-				{Value: "common", Position: 1, Frequency: 2},
-				{Value: "var2", Position: 2, Frequency: 1},
+				{Value: unique.Make("A"), Position: 0, Frequency: 2},
+				{Value: unique.Make("common"), Position: 1, Frequency: 2},
+				{Value: unique.Make("var2"), Position: 2, Frequency: 1},
 			},
 		},
 		{ // Group B
 			Words: []Word{
-				{Value: "B", Position: 0, Frequency: 1},
-				{Value: "another", Position: 1, Frequency: 1},
+				{Value: unique.Make("B"), Position: 0, Frequency: 1},
+				{Value: unique.Make("another"), Position: 1, Frequency: 1},
 			},
 		},
 		{ // Log with different length
 			Words: []Word{
-				{Value: "C", Position: 0, Frequency: 1},
+				{Value: unique.Make("C"), Position: 0, Frequency: 1},
 			},
 		},
 	}
@@ -47,15 +48,15 @@ func TestCreateInitialGroups(t *testing.T) {
 	var groupAFound, groupBFound, groupCFound bool
 	for _, group := range groups {
 		if len(group.Logs) == 2 { // Group A
-			if group.Pattern.Words[0].Value == "A" && group.Pattern.Words[1].Value == "common" {
+			if group.Pattern.Words[0].Value.Value() == "A" && group.Pattern.Words[1].Value.Value() == "common" {
 				groupAFound = true
 			}
 		}
 		if len(group.Logs) == 1 {
-			if len(group.Pattern.Words) == 2 && group.Pattern.Words[0].Value == "B" { // Group B
+			if len(group.Pattern.Words) == 2 && group.Pattern.Words[0].Value.Value() == "B" { // Group B
 				groupBFound = true
 			}
-			if len(group.Pattern.Words) == 1 && group.Pattern.Words[0].Value == "C" { // Group C
+			if len(group.Pattern.Words) == 1 && group.Pattern.Words[0].Value.Value() == "C" { // Group C
 				groupCFound = true
 			}
 		}

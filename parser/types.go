@@ -1,19 +1,21 @@
 package parser
 
-import "fmt"
+import (
+	"unique"
+)
 
 // LogMessage represents one log line after preprocessing.
 type LogMessage struct {
-	ID      int    // Original log index
-	Content string // Original content
-	Words   []Word // Words the log is split into
+	ID      int                   // Original log index
+	Content unique.Handle[string] // Original content (interned)
+	Words   []Word                // Words the log is split into
 }
 
 // Word represents one word in a log with its metadata.
 type Word struct {
-	Value     string // Text value of the word
-	Position  int    // Position (index) in the log line
-	Frequency int    // Global frequency of the word across all logs
+	Value     unique.Handle[string] // Text value of the word (interned)
+	Position  int                   // Position (index) in the log line
+	Frequency int                   // Global frequency of the word across all logs
 }
 
 // WordCombination - is a set of words from one log with the same frequency.
@@ -24,11 +26,8 @@ type WordCombination struct {
 
 // Key generates a unique key for WordCombination for use in map.
 func (wc WordCombination) Key() string {
-	key := fmt.Sprintf("freq:%d-", wc.Frequency)
-	for _, word := range wc.Words {
-		key += fmt.Sprintf("pos:%d,val:%s|", word.Position, word.Value)
-	}
-	return key
+	// Use optimized key generation with buffer pooling
+	return KeyGeneration(wc.Frequency, wc.Words)
 }
 
 // LogGroup represents a group of logs unified by a common pattern.
@@ -51,12 +50,12 @@ func (lp LogPattern) Key() string {
 
 // Node - node in the bidirectional tree.
 type Node struct {
-	Value       string
+	Value       unique.Handle[string] // Interned string value
 	IsVariable  bool
-	Position    int              // Column position for this node
-	Children    map[string]*Node // Child nodes (for child direction)
-	ParentWords []string         // Words in parent direction
-	Logs        []*LogMessage    // Logs passing through this node
+	Position    int                     // Column position for this node
+	Children    map[string]*Node        // Child nodes (for child direction) - key is still string for lookups
+	ParentWords []unique.Handle[string] // Words in parent direction (interned)
+	Logs        []*LogMessage           // Logs passing through this node
 }
 
 // BidirectionalTree represents a bidirectional parallel tree for one log group.
