@@ -23,17 +23,17 @@ func TestBrain_EndToEnd_Correctness(t *testing.T) {
 
 	config := Config{
 		Delimiters:           `\s+`,
-		ChildBranchThreshold: 2, // Threshold 2
+		ChildBranchThreshold: 3, // Threshold 3 (typical value per paper Table V)
 	}
 
 	parser := New(config)
 	results := parser.Parse(logLines)
 
-	// EXPECTED RESULT:
+	// EXPECTED RESULT (Algorithm 3, line 10: num >= threshold):
 	// 1. The first initial group ("event..."): has 3 variants in the middle column (A,B,C).
-	//    Since 3 > threshold (2), this column becomes a variable <*>. This gives 1 final template.
+	//    Since 3 >= threshold (3), this column becomes a variable <*>. This gives 1 final template.
 	// 2. The second initial group ("task..."): has 2 variants in the middle column (X,Y).
-	//    Since 2 <= threshold (2), this column gives two constant branches. This gives 2 final templates.
+	//    Since 2 < threshold (3), this column gives two constant branches. This gives 2 final templates.
 	// TOTAL: 1 + 2 = 3 final templates.
 	expected := []*ParseResult{
 		{Template: "event <*> happened", Count: 3},
@@ -77,10 +77,8 @@ func TestBrain_EndToEnd_PaperExample(t *testing.T) {
 	}
 
 	config := Config{
-		Delimiters:             `[\s,]+`,
-		ChildBranchThreshold:   1,
-		UseDynamicThreshold:    true,
-		DynamicThresholdFactor: 1.5,
+		Delimiters:           `[\s,]+`,
+		ChildBranchThreshold: 3, // Static threshold per paper (Table V typical values)
 	}
 
 	parser := New(config)

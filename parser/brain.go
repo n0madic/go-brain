@@ -487,8 +487,8 @@ func (p *BrainParser) updateChildDirection(tree *BidirectionalTree, rootNode *No
 	uniqueWordsCount := len(wordsInColumn)
 	threshold := p.calculateDynamicThreshold(uniqueWordsCount)
 
-	// If number of branches > threshold, consider all as variables
-	if uniqueWordsCount > threshold {
+	// If number of branches >= threshold, consider all as variables (Algorithm 3, line 10: num ≥ threshold)
+	if uniqueWordsCount >= threshold {
 		variableNode := GetNode()
 		variableNode.IsVariable = true
 		variableNode.Children = GetStringMap()
